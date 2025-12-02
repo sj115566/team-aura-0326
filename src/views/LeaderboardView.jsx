@@ -3,7 +3,7 @@ import { Card } from '../components/ui/Card';
 import { Icon } from '../components/Icons';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
+import { Badge } from '../components/ui/Badge'; // 引入 Badge
 
 
 export const LeaderboardView = ({ users, currentUser, seasonGoal = 10000, seasonGoalTitle = "Sub Goal (Season Total)", onUpdateGoal, roles, onEditUserRole }) => {
@@ -14,6 +14,25 @@ export const LeaderboardView = ({ users, currentUser, seasonGoal = 10000, season
 
  const totalPoints = useMemo(() => {
    return users.reduce((acc, user) => acc + (Number(user.points) || 0), 0);
+ }, [users]);
+
+
+ // 計算排名邏輯 (Standard Competition Ranking 1224)
+ const rankedUsers = useMemo(() => {
+   let currentRank = 1;
+   return users.map((user, index) => {
+     const points = Number(user.points) || 0;
+     const prevPoints = index > 0 ? (Number(users[index - 1].points) || 0) : null;
+
+
+     // 如果分數比上一位低，排名就變成當前的位置 (index + 1)
+     // 如果分數跟上一位一樣，排名維持不變 (currentRank)
+     if (index > 0 && points < prevPoints) {
+       currentRank = index + 1;
+     }
+    
+     return { ...user, rank: currentRank };
+   });
  }, [users]);
 
 
@@ -92,9 +111,8 @@ export const LeaderboardView = ({ users, currentUser, seasonGoal = 10000, season
          <span>RANK / NAME</span>
          <span>POINTS</span>
        </div>
-       {users.map((u, index) => {
-         // 因為 users 已經在外面 sort 過了，這裡直接用 index + 1
-         const rank = index + 1;
+       {rankedUsers.map((u) => {
+         const rank = u.rank;
          // 檢查是否為自己，給予高亮背景
          const isMe = u.uid === currentUser.uid;
          const userRoleBadges = getUserRoleBadges(u.roles);
@@ -164,6 +182,4 @@ export const LeaderboardView = ({ users, currentUser, seasonGoal = 10000, season
    </div>
  );
 };
-
-
 

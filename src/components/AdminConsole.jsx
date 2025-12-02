@@ -43,6 +43,23 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
              const currentPoints = inputPoints[sub.id] || '';
 
 
+             // 修正：計算正確的原始分數傳遞給審核函數
+             // 1. 變動分數：使用輸入框的值
+             // 2. 固定分數：優先使用 sub.basePoints (新版資料)，若無則查表 task.points，最後才用 sub.points (舊版相容)
+             let pointsToPass = 0;
+             if (isVari) {
+                 pointsToPass = currentPoints;
+             } else {
+                 if (sub.basePoints !== undefined && sub.basePoints !== null) {
+                     pointsToPass = sub.basePoints;
+                 } else if (task && task.points) {
+                     pointsToPass = task.points;
+                 } else {
+                     pointsToPass = sub.points;
+                 }
+             }
+
+
              return (
                <div key={sub.id} className="bg-slate-700 p-4 rounded-xl border border-slate-600">
                  <div className="flex justify-between text-xs text-slate-400 mb-2">
@@ -83,7 +100,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
                    <Button
                      variant="success"
                      className="flex-1 py-1.5 text-sm"
-                     onClick={() => onReview(sub.id, 'approve', isVari ? currentPoints : sub.points)}
+                     onClick={() => onReview(sub.id, 'approve', pointsToPass)}
                    >
                      通過
                    </Button>
@@ -191,11 +208,6 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
                </label>
                <input
                  type="number"
-                 // 這裡綁定的是 points，但為了邏輯一致，如果我们要「修正」，
-                 // 應該是修正 basePoints，然後讓系統重算。
-                 // 但原本的 review 函式接收的是 points 參數並將其視為 basePoints (如果 approved)
-                 // 所以這裡直接顯示目前的 points (若是舊資料沒有 basePoints) 或 basePoints
-                 // 為了簡化，我們讓管理員輸入「想要給的基礎分」
                  value={editSub.basePoints !== undefined ? editSub.basePoints : editSub.points}
                  onChange={e => setEditSub({...editSub, points: e.target.value, basePoints: e.target.value})}
                  className="w-full p-2 border rounded mt-1 outline-none focus:border-indigo-500"
@@ -206,7 +218,6 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
              variant="primary"
              className="w-full"
              onClick={() => {
-               // 這裡傳入的 editSub.points 會被 useAdmin 的 review 函式當作 basePoints 處理
                onReview(editSub.id, 'update', editSub.points, editSub.status);
                setEditSub(null);
              }}
@@ -219,6 +230,4 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
    </div>
  );
 };
-
-
 

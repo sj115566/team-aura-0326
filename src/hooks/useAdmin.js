@@ -75,7 +75,6 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
 
  // 內部函式：計算加成倍率 (百分比相加邏輯)
  // Multiplier = 1 + (Rate1 - 1) + (Rate2 - 1) + ...
- // 例如：1.2 (+20%) 和 1.3 (+30%) -> 1 + 0.2 + 0.3 = 1.5 (+50%)
  const calculateMultiplier = (userRoleCodes, allRoles = roles) => {
      const safeRoles = allRoles || [];
      const userRoles = userRoleCodes || [];
@@ -96,7 +95,6 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
 
  // 內部函式：重新計算特定使用者的所有歷史分數
  const recalculateUserPoints = async (userId, userDocId, currentSeason, currentRoles = roles) => {
-     // 1. 找出該使用者本賽季所有 approved 的提交
      const q = query(
          collection(db, "submissions"),
          where("uid", "==", userId),
@@ -105,12 +103,10 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
      );
      const snapshot = await getDocs(q);
     
-     // 2. 取得使用者最新的 roles
      const userDocSnap = await getDoc(doc(db, "users", userDocId));
      if (!userDocSnap.exists()) return;
     
      const userData = userDocSnap.data();
-     // 使用傳入的 currentRoles (可能是最新的 roles 列表)
      const multiplier = calculateMultiplier(userData.roles, currentRoles);
 
 
@@ -119,7 +115,7 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
      let batchCount = 0;
 
 
-     // 3. 獲取所有 Tasks 以查找原始分 (因為 submission 可能沒存 basePoints)
+     // 獲取所有 Tasks 以查找原始分
      const tasksSnapshot = await getDocs(collection(db, "tasks"));
      const taskMap = {};
      tasksSnapshot.forEach(t => {
@@ -139,9 +135,7 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
          } else if (taskMap[subData.taskId] && taskMap[subData.taskId].type === 'fixed') {
              basePoints = Number(taskMap[subData.taskId].points) || 0;
          } else {
-             // 如果無法得知原始分，只能假設目前分數就是原始分 (這不完美但能防止歸零)
-             // 或者我們反推： assumedBase = subData.points / oldMultiplier?
-             // 為了安全，若無 basePoints 則維持原樣
+              // 如果找不到原始分，保留目前分數不變，避免歸零
               newTotalPoints += (Number(subData.points) || 0);
               continue;
          }
@@ -315,35 +309,26 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
    }, "身分組已新增"),
 
 
-   // 更新身分組並觸發所有相關使用者重算
    updateRole: (id, data) => execute(async () => {
        if (!id) throw new Error("無效的 ID");
       
-       // 1. 更新身分組
        await updateDoc(doc(db, "roles", id), {
            ...data,
            multiplier: Number(data.multiplier) || 1
        });
 
 
-       // 2. 找出所有擁有此身分的使用者並重算分數
-       const updatedRoleCode = data.code; // 假設 code 沒變，或者我們需要知道舊的 code
-       // 實際上 updateRole 不會改 code，所以用 data.code 即可 (但要注意如果 data 沒傳 code)
-       // 為了安全，我們最好先從 roles state 找到這個 role 的 code
        const targetRole = roles.find(r => r.firestoreId === id);
        const codeToFind = targetRole ? targetRole.code : data.code;
 
 
        if (codeToFind) {
             const currentSeason = getValidSeason();
-            // 這裡使用新的 roles 列表進行計算 (模擬更新後的狀態)
             const updatedRoles = roles.map(r => r.firestoreId === id ? { ...r, ...data, multiplier: Number(data.multiplier) || 1 } : r);
 
 
-            // 找出受影響的使用者
             const affectedUsers = users.filter(u => (u.roles || []).includes(codeToFind));
            
-            // 批次重算 (這可能會花一點時間)
             for (const user of affectedUsers) {
                 await recalculateUserPoints(user.uid, user.firestoreId, currentSeason, updatedRoles);
             }
@@ -366,10 +351,8 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
        const user = users.find(u => u.uid === userId);
        if (!user) throw new Error("找不到使用者");
       
-       // 1. 更新身分
        await updateDoc(doc(db, "users", user.firestoreId), { roles: newRoles });
       
-       // 2. 觸發重算分數 (針對當前賽季)
        const currentSeason = getValidSeason();
        await recalculateUserPoints(userId, user.firestoreId, currentSeason);
       
@@ -499,6 +482,4 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
 
  return { actions, adminLoading };
 };
-
-
 
