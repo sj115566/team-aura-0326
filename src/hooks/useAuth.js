@@ -18,7 +18,7 @@ export const useAuth = () => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // 白名單檢查
-        const q = query(collection(db, "users"), where("email", "==", user.email));
+        const q = query(collection(db, "users"), where("email", "===", user.email));
         const querySnapshot = await getDocs(q);
         
         if (!querySnapshot.empty) {
