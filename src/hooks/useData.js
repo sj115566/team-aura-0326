@@ -26,10 +26,8 @@ export const useData = (currentUser, updateCurrentUser) => {
 
 
  // 1. 監聽系統設定 (公開或需登入)
- // 為了避免權限錯誤，這裡也建議等待 currentUser 存在，除非你的 system 集合是完全公開的
- // 根據你的 Rules，system 集合需要 isAuthenticated()，所以必須等待 currentUser
  useEffect(() => {
-   if (!currentUser) return; // 新增：等待登入後才監聽設定
+   if (!currentUser) return;
 
 
    const unsubSettings = onSnapshot(doc(db, "system", "config"), (doc) => {
@@ -53,24 +51,21 @@ export const useData = (currentUser, updateCurrentUser) => {
                return prev;
            });
        } else {
-           // 文件不存在的處理 (初始化)
            setCurrentSeason("第一賽季");
            setAvailableSeasons(["第一賽季"]);
            setSelectedSeason("第一賽季");
        }
    }, (error) => {
        console.error("系統設定讀取失敗:", error);
-       // 不要在這裡直接設為無法讀取，可能會覆蓋掉正確狀態，讓它保持 '載入中...' 或重試
    });
 
 
    return () => unsubSettings();
- }, [currentUser]); // 依賴 currentUser
+ }, [currentUser]);
 
 
  // 2. 主資料監聽
  useEffect(() => {
-   // 關鍵修正：必須要有 currentUser 且已選擇賽季才開始監聽
    if (!currentUser || !selectedSeason) return;
 
 
@@ -140,14 +135,48 @@ export const useData = (currentUser, updateCurrentUser) => {
            });
            setUsers(usersData);
           
-           // 同步更新當前使用者的最新資料
+           // ========================================================
+           // ▼▼▼ 修正邏輯：使用 ID 或 Email 來對應使用者，而非 Username ▼▼▼
+           // ========================================================
            if (currentUser) {
-               const freshMe = usersData.find(u => u.username === currentUser.username);
-               // 只有當分數或權限改變時才更新，避免無限迴圈
-               if (freshMe && (freshMe.points !== (currentUser.points || 0) || freshMe.isAdmin !== currentUser.isAdmin || JSON.stringify(freshMe.roles) !== JSON.stringify(currentUser.roles))) {
-                   updateCurrentUser(freshMe);
+               let freshMe = null;
+              
+               // 1. 優先嘗試用 firestoreId (文件ID) 匹配 (最準確)
+               if (currentUser.firestoreId) {
+                   freshMe = usersData.find(u => u.firestoreId === currentUser.firestoreId);
+               }
+              
+               // 2. 如果沒有 ID 或找不到，嘗試用 Email 匹配
+               if (!freshMe && currentUser.email) {
+                   freshMe = usersData.find(u => u.email === currentUser.email);
+               }
+
+
+               // 3. 最後才退回去用 username (舊邏輯)
+               if (!freshMe) {
+                    freshMe = usersData.find(u => u.username === currentUser.username);
+               }
+
+
+               if (freshMe) {
+                   // 檢查是否有任何重要變更 (包含 username)
+                   const hasChanged =
+                       freshMe.username !== currentUser.username || // 新增：偵測名字是否改了
+                       freshMe.points !== (currentUser.points || 0) ||
+                       freshMe.isAdmin !== currentUser.isAdmin ||
+                       JSON.stringify(freshMe.roles) !== JSON.stringify(currentUser.roles);
+                  
+                   if (hasChanged) {
+                       console.log("偵測到使用者資料變更，自動同步中...", freshMe);
+                       updateCurrentUser(freshMe);
+                   }
                }
            }
+           // ========================================================
+           // ▲▲▲ 修正結束 ▲▲▲
+           // ========================================================
+
+
        }, (error) => console.error("Users fetch error:", error));
 
 
@@ -164,15 +193,9 @@ export const useData = (currentUser, updateCurrentUser) => {
            setSubmissions(allSubs);
 
 
-           // 歷史模式下，使用者積分需動態計算 (因為 users 集合只存當前積分)
-           // 這裡可以依賴 useAdmin 裡的邏輯，或者簡單加總 approved 的 points
            const seasonPointsMap = {};
            allSubs.forEach(sub => {
                if (sub.status === 'approved') {
-                   // 這裡的 points 已經是加權後的了 (如果是舊資料)
-                   // 但因為我們改了架構，現在 points = basePoints
-                   // 在歷史模式下如果想正確顯示當年的加權分，會比較複雜
-                   // 這裡先維持簡單加總，顯示歷史紀錄
                    const pts = Number(sub.points) || 0;
                    seasonPointsMap[sub.uid] = (seasonPointsMap[sub.uid] || 0) + pts;
                }
@@ -186,7 +209,7 @@ export const useData = (currentUser, updateCurrentUser) => {
                    return {
                        ...data,
                        uid: uid,
-                       points: seasonPointsMap[uid] || 0, // 覆蓋為該賽季的歷史積分
+                       points: seasonPointsMap[uid] || 0,
                        firestoreId: doc.id
                    };
                });
@@ -208,7 +231,7 @@ export const useData = (currentUser, updateCurrentUser) => {
      unsubGames();
      unsubRoles();
    };
- }, [currentUser?.username, selectedSeason, isHistoryMode]); // 加入 currentUser?.username 確保切換使用者時重抓
+ }, [currentUser?.username, selectedSeason, isHistoryMode]);
 
 
  return {
