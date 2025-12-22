@@ -13,7 +13,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'icon.png'], // 確保包含本地圖片
       manifest: {
         name: 'Team Aura 波導戰隊',
