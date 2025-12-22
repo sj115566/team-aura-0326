@@ -151,7 +151,7 @@ export const useData = (currentUser, updateCurrentUser) => {
 
         if (!isHistoryMode) {
             // --- 一般模式 (Live) ---
-            const limitCount = currentUser?.isAdmin ? 1000 : 100;
+            const limitCount = 1000; // 統一調高限制，確保排行榜與個人統計資料的一致性
             // Submissions 必須過濾賽季 (全域顯示用的，有數量限制)
             const subQ = query(collection(db, "submissions"), where("season", "==", selectedSeason), orderBy("timestamp", "desc"), limit(limitCount));
             unsubSubs = onSnapshot(subQ, (s) => {

@@ -255,6 +255,12 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
             await recalculateUserPoints(user.username, user.firestoreId, currentSeason);
         }, "使用者身分已更新"),
 
+        recalculateUserScore: (user) => execute(async () => {
+            if (!user?.firestoreId) throw new Error("無效的使用者資料");
+            const currentSeason = getValidSeason();
+            await recalculateUserPoints(user.username, user.firestoreId, currentSeason);
+        }, "分數已重新校正"),
+
         // 🔥 修正：將賽季目標與總分寫入該賽季的文件，而非 system/config
         updateSeasonGoal: (newGoal, newTitle) => execute(async () => {
             const currentSeason = getValidSeason();

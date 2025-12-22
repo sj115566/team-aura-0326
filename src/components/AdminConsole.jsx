@@ -259,12 +259,29 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
         </div>
       )}
 
-      {viewing && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4" onClick={() => setViewing(null)}>
-          <img src={viewing} className="max-w-full max-h-full rounded shadow-2xl" alt="proof full" />
-          <button className="absolute top-4 right-4 text-white p-2"><Icon name="X" /></button>
+      <Modal
+        isOpen={!!viewing}
+        title="預覽圖片"
+        onClose={() => setViewing(null)}
+        maxWidth="max-w-3xl"
+      >
+        <div className="flex justify-center items-center bg-slate-900/50 rounded-xl p-2 min-h-[300px]">
+          <img
+            src={viewing}
+            className="max-w-full max-h-[70vh] rounded-lg shadow-2xl object-contain animate-fadeIn"
+            alt="proof full"
+          />
         </div>
-      )}
+        <div className="mt-4">
+          <Button
+            variant="ghost"
+            className="w-full text-slate-400 hover:text-white"
+            onClick={() => setViewing(null)}
+          >
+            關閉預覽
+          </Button>
+        </div>
+      </Modal>
 
       <Modal isOpen={!!editSub} title="修正紀錄" onClose={() => setEditSub(null)}>
         {editSub && (

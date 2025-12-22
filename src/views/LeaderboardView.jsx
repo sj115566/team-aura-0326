@@ -26,8 +26,8 @@ export const LeaderboardView = () => {
         isAdmin, actions, isHistoryMode, lotteryTarget, seasonGoal, seasonGoalTitle
     } = useGlobalData();
 
-    // 取得 openUserRoleModal
-    const { openUserRoleModal } = useModals();
+    // 取得 openUserRoleModal 與 confirm
+    const { openUserRoleModal, confirm } = useModals();
 
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState("");
@@ -49,13 +49,18 @@ export const LeaderboardView = () => {
             if (sub.status === 'approved') {
                 const uid = sub.userDocId || sub.uid;
                 const points = Number(sub.points) || 0;
-                const task = tasks.find(t => t.id === sub.taskId);
+                // Robust task lookup
+                const task = tasks.find(t => t.firestoreId === sub.taskId || t.id === sub.taskId);
                 const isBonusOnly = task?.isBonusOnly;
 
-                // We still calculate this for History Mode usage, and for Season Points breakdown
+                // We still calculate this for breakdown usage
                 userPointsMap.set(uid, (userPointsMap.get(uid) || 0) + points);
 
-                if (!isBonusOnly) {
+                if (isBonusOnly) {
+                    // Track bonus points specifically to subtract from total in Live Mode
+                    const currentBonus = userSeasonPointsMap.get(uid + "_bonus") || 0;
+                    userSeasonPointsMap.set(uid + "_bonus", currentBonus + points);
+                } else {
                     userSeasonPointsMap.set(uid, (userSeasonPointsMap.get(uid) || 0) + points);
                 }
             }
@@ -68,6 +73,11 @@ export const LeaderboardView = () => {
                 const safeRoles = roles || [];
                 const activeRoles = safeRoles.filter(r => userRoleCodes.includes(r.code));
 
+                // Pre-calculate multiplier
+                let totalExtra = 0;
+                activeRoles.forEach(r => { totalExtra += (Number(r.multiplier) || 1) - 1; });
+                const multiplier = Math.max(1, 1 + totalExtra);
+
                 let finalPoints = 0;
                 let finalSeasonPoints = 0;
 
@@ -75,36 +85,19 @@ export const LeaderboardView = () => {
                     // --- Live Mode: Use DB Source of Truth ---
                     finalPoints = Number(u.points) || 0;
 
-                    // For Season Points (Lottery), we unfortunately still rely on local calculation
-                    // because DB usually doesn't store 'seasonPoints'.
-                    // If submissions are truncated, this might be lower than actual. 
-                    // But Total Points will now be correct.
-                    const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || userSeasonPointsMap.get(u.username) || 0;
+                    // Calculate Bonus Points (from limited set)
+                    const baseBonusPoints = userSeasonPointsMap.get(u.firestoreId + "_bonus") || userSeasonPointsMap.get(u.username + "_bonus") || 0;
+                    const bonusTotal = Math.round(baseBonusPoints * multiplier);
 
-                    // Calculate multiplier for Season Points scaling
-                    let totalExtra = 0;
-                    activeRoles.forEach(r => {
-                        const rate = Number(r.multiplier) || 1;
-                        totalExtra += (rate - 1);
-                    });
-                    const multiplier = Math.max(1, 1 + totalExtra);
-
-                    finalSeasonPoints = Math.round(baseSeasonPoints * multiplier);
+                    // Season Points = Total - Bonus
+                    // This way, if no bonus tasks are present in the truncated set (or system), 
+                    // finalSeasonPoints will correctly equal finalPoints.
+                    finalSeasonPoints = Math.max(0, finalPoints - bonusTotal);
 
                 } else {
                     // --- History Mode: Recalculate from all loaded submissions ---
-                    // u.points from useData in history mode is just Sum(Base), no multiplier.
-                    // So we must calculate: Round(Sum(Base) * Multiplier)
-
                     const basePoints = userPointsMap.get(u.firestoreId) || userPointsMap.get(u.username) || 0;
                     const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || userSeasonPointsMap.get(u.username) || 0;
-
-                    let totalExtra = 0;
-                    activeRoles.forEach(r => {
-                        const rate = Number(r.multiplier) || 1;
-                        totalExtra += (rate - 1);
-                    });
-                    const multiplier = Math.max(1, 1 + totalExtra);
 
                     finalPoints = Math.round(basePoints * multiplier);
                     finalSeasonPoints = Math.round(baseSeasonPoints * multiplier);
@@ -247,8 +240,26 @@ export const LeaderboardView = () => {
                                             {user.isQualified && (
                                                 <span className="text-base" title={`已達成賽季目標 (${user.seasonPoints}分)`}>🎟️</span>
                                             )}
-                                            {/* 如果是管理員，顯示一個小小的編輯圖示提示 */}
-                                            {isAdmin && !isHistoryMode && <Icon name="Edit2" className="w-3 h-3 text-gray-400 opacity-50" />}
+                                            {/* 如果是管理員，顯示小功能的提示 */}
+                                            {isAdmin && !isHistoryMode && (
+                                                <div className="flex items-center gap-1 ml-1">
+                                                    <Icon name="Edit2" className="w-3 h-3 text-gray-400 opacity-50" />
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            confirm({
+                                                                title: "重新校正分數",
+                                                                message: `確定要根據「${user.username || user.uid}」目前的提交紀錄重新計算總分嗎？`,
+                                                                onConfirm: () => actions.recalculateUserScore(user)
+                                                            });
+                                                        }}
+                                                        className="p-1 hover:bg-slate-200 rounded transition-colors dark:hover:bg-slate-700"
+                                                        title="重新校正分數 (校準庫存點數)"
+                                                    >
+                                                        <Icon name="RefreshCw" className="w-3 h-3 text-indigo-500" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex gap-1 flex-wrap mt-0.5">
                                             {isMe && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-bold dark:bg-indigo-900/50 dark:text-indigo-300">YOU</span>}
@@ -260,11 +271,9 @@ export const LeaderboardView = () => {
                                 </div>
                                 <div className="text-right">
                                     <div className="font-mono font-bold text-slate-800 dark:text-white text-lg">{user.rawPoints}</div>
-                                    {user.seasonPoints !== user.rawPoints && (
-                                        <div className="text-[10px] text-slate-400">
-                                            賽季積分: <span className={user.isQualified ? "text-green-600 font-bold" : ""}>{user.seasonPoints}</span>
-                                        </div>
-                                    )}
+                                    <div className="text-[10px] text-slate-400">
+                                        賽季積分: <span className={user.isQualified ? "text-green-600 font-bold" : ""}>{user.seasonPoints}</span>
+                                    </div>
                                 </div>
                             </div>
                         );

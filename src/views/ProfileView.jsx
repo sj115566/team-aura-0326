@@ -77,55 +77,86 @@ export const ProfileView = () => {
         // 1. 處理 mySubs：加入 taskTitle 與 week (含 SPECIAL_PINNED 判斷)
         const my = myRaw.map(sub => {
             const task = tasks.find(t => t.firestoreId === sub.taskId || t.id === sub.taskId);
-            let weekGroup = task ? task.week : '?';
-            // 判斷是否為常駐/公告任務
-            if (task && (task.isPinned || weekGroup === 'Pinned')) {
-                weekGroup = 'SPECIAL_PINNED';
+            let weekGroup = '?';
+            if (task) {
+                const rawWeek = task.week !== undefined && task.week !== null ? String(task.week).trim() : '';
+                const lowerWeek = rawWeek.toLowerCase();
+                if (task.isPinned || lowerWeek === 'pinned' || lowerWeek === 'special_pinned' || lowerWeek === 'pinned-main') {
+                    weekGroup = 'SPECIAL_PINNED';
+                } else {
+                    weekGroup = rawWeek || '?';
+                }
             }
             return {
                 ...sub,
                 taskTitle: task ? task.title : sub.taskId,
                 week: weekGroup,
             };
-        }).sort((a, b) => b.timestamp - a.timestamp);
+        }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         const pending = isAdmin ? submissions.filter(s => s.status === 'pending') : [];
         const processed = isAdmin ? submissions.filter(s => s.status !== 'pending') : [];
 
-        const stats = { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, weeks: {} };
+        const stats = { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false }, weeks: {} };
         let totalBase = 0;
 
         if (!isAdmin || isHistoryMode) {
             tasks.forEach(t => {
-                let type = 'seasonal';
-                if (t.isPinned) type = 'pinned';
-                if (type === 'pinned') {
+                const rawW = t.week !== undefined && t.week !== null ? String(t.week).trim() : '';
+
+                // 獲取分類資訊來判斷系統標籤 (決定任務屬於哪個「區塊」)
+                const cat = categories?.find(c => c.firestoreId === t.categoryId);
+                const isSectionPinned = cat?.systemTag === 'pinned' || (!cat?.systemTag && cat?.label === '常駐');
+                const isSectionDaily = cat?.systemTag === 'daily' || (!cat?.systemTag && cat?.label === '每日');
+                const isVariable = t.type === 'variable';
+
+                if (isSectionPinned) {
                     stats.pinned.totalTasks++;
                     stats.pinned.totalPts += (Number(t.points) || 0);
+                    if (isVariable) stats.pinned.hasVariable = true;
                 } else {
-                    const w = t.week || 'Other';
-                    if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 } };
-                    stats.weeks[w][type].totalTasks++;
-                    stats.weeks[w][type].totalPts += (Number(t.points) || 0);
+                    const w = rawW || 'Other';
+                    const statType = isSectionDaily ? 'daily' : 'seasonal';
+                    if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false } };
+                    stats.weeks[w][statType].totalTasks++;
+                    stats.weeks[w][statType].totalPts += (Number(t.points) || 0);
+                    if (isVariable) stats.weeks[w][statType].hasVariable = true;
                 }
             });
             my.forEach(s => {
                 if (s.status === 'approved') {
-                    // 注意：這裡使用原始任務資料來計算統計，不需 SPECIAL_PINNED 邏輯
                     const task = tasks.find(t => t.firestoreId === s.taskId || t.id === s.taskId);
+                    const base = Number(s.points) || 0;
+                    totalBase += base;
+
                     if (task) {
-                        const base = Number(s.points) || 0;
-                        totalBase += base;
-                        let type = task.isPinned ? 'pinned' : 'seasonal';
-                        if (type === 'pinned') {
+                        const rawW = task.week !== undefined && task.week !== null ? String(task.week).trim() : '';
+                        const cat = categories?.find(c => c.firestoreId === task.categoryId);
+                        const isSectionPinned = cat?.systemTag === 'pinned' || (!cat?.systemTag && cat?.label === '常駐');
+                        const isSectionDaily = cat?.systemTag === 'daily' || (!cat?.systemTag && cat?.label === '每日');
+
+                        if (isSectionPinned) {
                             stats.pinned.completed++;
                             stats.pinned.earnedBase += base;
                         } else {
-                            const w = task.week || 'Other';
-                            if (stats.weeks[w]) {
-                                stats.weeks[w][type].completed++;
-                                stats.weeks[w][type].earnedBase += base;
-                            }
+                            const w = rawW || 'Other';
+                            const statType = isSectionDaily ? 'daily' : 'seasonal';
+                            if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false } };
+                            stats.weeks[w][statType].completed++;
+                            stats.weeks[w][statType].earnedBase += base;
+                        }
+                    } else if (s.week !== undefined && s.week !== null) {
+                        // 處理任務資料缺失 (如第 0 週舊紀錄)
+                        const rawW = String(s.week).trim();
+                        const isPinnedWeek = rawW.toLowerCase() === 'pinned' || rawW.toLowerCase() === 'special_pinned';
+                        if (isPinnedWeek) {
+                            stats.pinned.completed++;
+                            stats.pinned.earnedBase += base;
+                        } else {
+                            const w = rawW || 'Other';
+                            if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0, hasVariable: false } };
+                            stats.weeks[w].seasonal.completed++;
+                            stats.weeks[w].seasonal.earnedBase += base;
                         }
                     }
                 }
@@ -175,15 +206,24 @@ export const ProfileView = () => {
     }, [mySubs, historySort]);
 
     const StatProgress = ({ title, data, colorClass, barColorClass }) => {
-        if (!data || data.totalTasks === 0) return null;
-        const percent = data.totalPts > 0 ? Math.min(100, (data.completed / data.totalTasks) * 100) : 0;
+        if (!data || (data.totalTasks === 0 && data.earnedBase === 0)) return null;
+        const percent = data.totalTasks > 0 ? Math.min(100, (data.completed / data.totalTasks) * 100) : (data.earnedBase > 0 ? 100 : 0);
         return (
             <div className="mb-3 last:mb-0">
                 <div className="flex justify-between mb-1 text-xs">
                     <span className={`font-bold ${colorClass}`}>{title}</span>
-                    <span className="font-bold text-slate-700 dark:text-slate-200">{data.earnedBase} <span className="text-[10px] font-normal">Pts</span> <span className="text-gray-400 text-[9px]">/ {data.totalPts} Pts</span></span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                        {data.earnedBase} <span className="text-[10px] font-normal">Pts</span>
+                        {data.totalTasks > 0 && (
+                            <span className="text-gray-400 text-[9px]"> / {data.totalPts}{data.hasVariable ? '+' : ''} Pts</span>
+                        )}
+                    </span>
                 </div>
-                <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>完成度</span><span>{data.completed} / {data.totalTasks}</span></div>
+                {data.totalTasks > 0 ? (
+                    <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>完成度</span><span>{data.completed} / {data.totalTasks}</span></div>
+                ) : (
+                    <div className="text-[9px] text-gray-400 mb-1 italic">來自歷史任務或已刪除任務</div>
+                )}
                 <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden dark:bg-slate-700"><div className={`h-1.5 rounded-full transition-all duration-500 ${barColorClass}`} style={{ width: `${percent}%` }}></div></div>
             </div>
         );
@@ -223,7 +263,62 @@ export const ProfileView = () => {
                 {myRoleBadges.length > 0 && (<div className="flex items-center justify-center gap-2 flex-wrap mb-3">{myRoleBadges.map(role => (<span key={role.code} className="text-[10px] px-2 py-0.5 rounded border font-bold shadow-sm" style={{ backgroundColor: role.color ? `${role.color}15` : '#f3f4f6', color: role.color || '#6b7280', borderColor: role.color ? `${role.color}40` : '#e5e7eb' }}>{role.label}</span>))}</div>)}
                 <div className="text-xs text-gray-400 mb-4">{isAdmin ? 'Administrator' : 'Trainer'}</div>
 
-                {(!isAdmin || isHistoryMode) && (<><div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800"><div><div className="text-2xl font-black text-slate-800 dark:text-white">{displayBasePoints}{displayBonusPoints > 0 && (<span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{displayBonusPoints})</span>)}</div><div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div></div><div><div className="text-2xl font-black text-slate-700 dark:text-slate-200">{mySubs.filter(s => s.status === 'approved').length}</div><div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div></div></div><div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800"><div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800"><h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400"><Icon name="Table" className="w-3 h-3" /> 任務進度統計</h3><Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" /></div>{showStats && (<div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">{statsData.pinned.totalTasks > 0 && (<div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30"><div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div><StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" /></div>)}{statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => { const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase; return (<div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700"><div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div><div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800"><span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span><span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span></div><div className="pl-2 space-y-4"><StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" /></div></div>); }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}</div>)}</div></>)}
+                {(!isAdmin || isHistoryMode) && (
+                    <>
+                        <div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800">
+                            <div>
+                                <div className="text-2xl font-black text-slate-800 dark:text-white">
+                                    {displayBasePoints}
+                                    {displayBonusPoints > 0 && (
+                                        <span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{displayBonusPoints})</span>
+                                    )}
+                                </div>
+                                <div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div>
+                            </div>
+                            <div>
+                                <div className="text-2xl font-black text-slate-700 dark:text-slate-200">
+                                    {mySubs.filter(s => s.status === 'approved').length}
+                                </div>
+                                <div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div>
+                            </div>
+                        </div>
+
+                        <div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800">
+                            <div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800">
+                                <h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400">
+                                    <Icon name="Table" className="w-3 h-3" /> 任務進度統計
+                                </h3>
+                                <Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" />
+                            </div>
+                            {showStats && (
+                                <div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">
+                                    {statsData.pinned.totalTasks > 0 && (
+                                        <div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30">
+                                            <div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div>
+                                            <StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" />
+                                        </div>
+                                    )}
+                                    {statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => {
+                                        const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase;
+                                        return (
+                                            <div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700">
+                                                <div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div>
+                                                <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800">
+                                                    <span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span>
+                                                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span>
+                                                </div>
+                                                <div className="pl-2 space-y-4">
+                                                    <StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" />
+                                                    <StatProgress title="每日挑戰" data={weekItem.daily} colorClass="text-amber-500" barColorClass="bg-amber-400" />
+                                                </div>
+                                            </div>
+                                        );
+                                    }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
                 {!isHistoryMode && <Button variant="danger" onClick={logout} className="w-full bg-white border border-red-100 dark:bg-slate-900 dark:border-red-900/50" icon="LogOut">登出</Button>}
             </Card>
 
@@ -239,7 +334,7 @@ export const ProfileView = () => {
                             </div>
                             <div className="divide-y divide-gray-50 dark:divide-slate-800">
                                 {mySubs.filter(s => s.week === week).map(sub => (
-                                    <div key={sub.id} className="p-3 flex justify-between items-center text-sm">
+                                    <div key={sub.firestoreId || sub.id} className="p-3 flex justify-between items-center text-sm">
                                         {/* 修改：使用 text-slate-700 dark:text-slate-300 */}
                                         <span className="font-medium text-slate-700 dark:text-slate-300">{sub.taskTitle}</span>
                                         <div className="flex items-center gap-2">

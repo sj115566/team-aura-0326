@@ -42,7 +42,8 @@ export const TaskListView = () => {
     const groupTasksByWeek = (taskList) => {
         const grouped = {};
         taskList.forEach(t => {
-            const w = t.week || 'Other';
+            const rawW = t.week !== undefined && t.week !== null ? String(t.week).trim() : 'Other';
+            const w = rawW || 'Other';
             if (!grouped[w]) grouped[w] = [];
             grouped[w].push(t);
         });
