@@ -26,7 +26,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
   };
 
   const getTaskTitle = (taskId) => {
-    const t = tasks.find(task => task.id === taskId);
+    const t = tasks.find(task => task.firestoreId === taskId || task.id === taskId);
     return t ? t.title : taskId;
   };
 
@@ -58,7 +58,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
       if (!currentPoints) { // 如果分數為 0 或 NaN
         let base = Number(editSub.basePoints) || 0;
         if (base === 0) {
-          const task = tasks.find(t => t.id === editSub.taskId);
+          const task = tasks.find(t => t.firestoreId === editSub.taskId || t.id === editSub.taskId);
           if (task) base = Number(task.points) || 0;
         }
         if (base > 0) {
@@ -87,7 +87,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
         activePendingSubs.length > 0 ? (
           <div className="space-y-3">
             {activePendingSubs.map(sub => {
-              const task = tasks.find(t => t.id === sub.taskId);
+              const task = tasks.find(t => t.firestoreId === sub.taskId || t.id === sub.taskId);
               const imgs = JSON.parse(sub.images || sub.proofImage || '[]');
               const isVari = task?.type === 'variable';
               const currentPoints = inputPoints[sub.id] || '';
@@ -198,8 +198,8 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
                   key={filter.id}
                   onClick={() => setHistoryFilter(filter.id)}
                   className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${historyFilter === filter.id
-                      ? 'bg-slate-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-slate-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
                     }`}
                 >
                   {filter.label}
@@ -225,8 +225,8 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
                     <div className="flex gap-2 mb-1 items-center">
                       <span className="font-bold text-slate-200">{displayName}</span>
                       <Badge className={`text-[10px] px-1.5 py-0.5 ${sub.status === 'approved' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
-                          sub.status === 'rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
-                            'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                        sub.status === 'rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' :
+                          'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                         }`}>
                         {sub.status === 'approved' ? '通過' : sub.status === 'rejected' ? '退回' : '已撤回'}
                       </Badge>
@@ -291,7 +291,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
 
                         // 嘗試從 tasks 列表找回原始設定
                         if (base === 0) {
-                          const task = tasks.find(t => t.id === prev.taskId);
+                          const task = tasks.find(t => t.firestoreId === prev.taskId || t.id === prev.taskId);
                           if (task) base = Number(task.points) || 0;
                         }
 

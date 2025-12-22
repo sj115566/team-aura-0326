@@ -20,8 +20,18 @@ export const ReportView = () => {
         submissions.forEach(s => {
             if (s.status === 'approved') {
                 const pts = Number(s.points);
-                if (s.userDocId) subMap.set(`${s.userDocId}_${s.taskId}`, pts);
-                if (s.uid) subMap.set(`${s.uid}_${s.taskId}`, pts);
+                const task = tasks.find(t => t.firestoreId === s.taskId || t.id === s.taskId);
+                const tid = task ? task.id : s.taskId;
+                const fid = task ? task.firestoreId : s.taskId;
+
+                if (s.userDocId) {
+                    subMap.set(`${s.userDocId}_${tid}`, pts);
+                    if (fid) subMap.set(`${s.userDocId}_${fid}`, pts);
+                }
+                if (s.uid) {
+                    subMap.set(`${s.uid}_${tid}`, pts);
+                    if (fid) subMap.set(`${s.uid}_${fid}`, pts);
+                }
             }
         });
 
@@ -43,11 +53,13 @@ export const ReportView = () => {
             const weekTotals = {};
             const taskPoints = {};
             const multiplier = getMultiplier(u.roles);
-            
+
             sortedWeeks.forEach(w => {
                 let wTotalBase = 0;
                 w.tasks.forEach(t => {
-                    let rawPts = subMap.get(`${u.firestoreId}_${t.id}`);
+                    let rawPts = subMap.get(`${u.firestoreId}_${t.firestoreId}`);
+                    if (rawPts === undefined) rawPts = subMap.get(`${u.firestoreId}_${t.id}`);
+                    if (rawPts === undefined) rawPts = subMap.get(`${u.uid}_${t.firestoreId}`);
                     if (rawPts === undefined) rawPts = subMap.get(`${u.uid}_${t.id}`);
                     taskPoints[t.id] = rawPts !== undefined ? rawPts : null;
                     if (rawPts !== undefined) wTotalBase += rawPts;
@@ -75,7 +87,7 @@ export const ReportView = () => {
                     )}
                 </div>
             </div>
-            
+
             {/* 修改：使用 card 類別確保背景色正確，並加上 border-0 因為 card 自帶邊框 */}
             <Card noPadding className="card flex flex-col h-[75vh] border-0 dark:border-slate-700">
                 <div className="overflow-auto flex-1 custom-scrollbar relative">
@@ -89,7 +101,7 @@ export const ReportView = () => {
                                 {weeks.map(w => (
                                     // 修改：週次標題背景色適配
                                     <th key={w.week} onClick={() => toggleCol(w.week)} className="sticky top-0 z-20 bg-indigo-50 border-b border-r border-indigo-100 p-2 font-bold text-indigo-700 cursor-pointer hover:bg-indigo-100 transition-colors min-w-[80px] dark:bg-indigo-900/30 dark:border-slate-700 dark:text-indigo-300 dark:hover:bg-indigo-900/50" colSpan={expandedCols[w.week] ? w.tasks.length : 1}>
-                                        <div className="flex items-center justify-center gap-1"><span>W{w.week}</span><Icon name={expandedCols[w.week] ? "ChevronDown" : "ChevronRight"} className="w-3 h-3"/></div>
+                                        <div className="flex items-center justify-center gap-1"><span>W{w.week}</span><Icon name={expandedCols[w.week] ? "ChevronDown" : "ChevronRight"} className="w-3 h-3" /></div>
                                     </th>
                                 ))}
                             </tr>

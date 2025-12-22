@@ -79,7 +79,7 @@ export const LeaderboardView = () => {
                     // because DB usually doesn't store 'seasonPoints'.
                     // If submissions are truncated, this might be lower than actual. 
                     // But Total Points will now be correct.
-                    const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || 0;
+                    const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || userSeasonPointsMap.get(u.username) || 0;
 
                     // Calculate multiplier for Season Points scaling
                     let totalExtra = 0;
@@ -96,8 +96,8 @@ export const LeaderboardView = () => {
                     // u.points from useData in history mode is just Sum(Base), no multiplier.
                     // So we must calculate: Round(Sum(Base) * Multiplier)
 
-                    const basePoints = userPointsMap.get(u.firestoreId) || 0;
-                    const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || 0;
+                    const basePoints = userPointsMap.get(u.firestoreId) || userPointsMap.get(u.username) || 0;
+                    const baseSeasonPoints = userSeasonPointsMap.get(u.firestoreId) || userSeasonPointsMap.get(u.username) || 0;
 
                     let totalExtra = 0;
                     activeRoles.forEach(r => {

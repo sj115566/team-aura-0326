@@ -12,7 +12,7 @@ import { ListSkeleton } from '../components/ui/Skeleton';
 export const ProfileView = () => {
     const {
         currentUser, tasks, submissions, users, logout, isAdmin, isHistoryMode,
-        roles, categories, actions, currentMultiplier, dataLoading, loading
+        roles, categories, actions, currentMultiplier, dataLoading, loading, mySubmissions
     } = useGlobalData();
 
     const { confirm } = useModals();
@@ -70,13 +70,13 @@ export const ProfileView = () => {
 
     // --- 核心資料處理：包含統計與提交紀錄 (已整合 Special Pinned 邏輯) ---
     const { mySubs, pendingSubs, processedSubs, statsData, totalBasePoints } = useMemo(() => {
-        if (!submissions) return { mySubs: [], pendingSubs: [], processedSubs: [], statsData: { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, weeks: [] }, totalBasePoints: 0 };
+        if (!mySubmissions) return { mySubs: [], pendingSubs: [], processedSubs: [], statsData: { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, weeks: [] }, totalBasePoints: 0 };
 
-        const myRaw = submissions.filter(s => s.userDocId ? s.userDocId === currentUser.firestoreId : s.uid === (currentUser.username || currentUser.uid));
+        const myRaw = mySubmissions;
 
         // 1. 處理 mySubs：加入 taskTitle 與 week (含 SPECIAL_PINNED 判斷)
         const my = myRaw.map(sub => {
-            const task = tasks.find(t => t.id === sub.taskId);
+            const task = tasks.find(t => t.firestoreId === sub.taskId || t.id === sub.taskId);
             let weekGroup = task ? task.week : '?';
             // 判斷是否為常駐/公告任務
             if (task && (task.isPinned || weekGroup === 'Pinned')) {
@@ -112,7 +112,7 @@ export const ProfileView = () => {
             my.forEach(s => {
                 if (s.status === 'approved') {
                     // 注意：這裡使用原始任務資料來計算統計，不需 SPECIAL_PINNED 邏輯
-                    const task = tasks.find(t => t.id === s.taskId);
+                    const task = tasks.find(t => t.firestoreId === s.taskId || t.id === s.taskId);
                     if (task) {
                         const base = Number(s.points) || 0;
                         totalBase += base;
@@ -135,20 +135,22 @@ export const ProfileView = () => {
         return { mySubs: my, pendingSubs: pending, processedSubs: processed, statsData: { pinned: stats.pinned, weeks: sortedWeeks }, totalBasePoints: totalBase };
     }, [tasks, submissions, currentUser, isAdmin, isHistoryMode]);
 
-    // --- Total Points Calculation ---
-    // In Live Mode, we trust currentUser.points (from DB) as it is the source of truth and accounts for all submissions (not just the limited set loaded).
-    // In History Mode, we recalculate locally because currentUser.points (from useData's history logic) lacks the multiplier.
+    // --- Total Points Breakdown Calculation ---
+    // In Live Mode, we trust currentUser.points (from DB) as it is the source of truth and accounts for all submissions.
+    // Instead of subtracting locally-summed base points (which might be truncated), we derive the breakdown using the multiplier.
+    // In History Mode, we recalculate from all loaded submissions.
 
-    let finalTotalPoints = 0;
-
-    if (!isHistoryMode && currentUser?.points !== undefined) {
-        finalTotalPoints = Number(currentUser.points) || 0;
-    } else {
-        // Fallback or History Mode: Calculate from loaded submissions
-        finalTotalPoints = Math.round(totalBasePoints * currentMultiplier);
-    }
-
-    const bonusPoints = finalTotalPoints - totalBasePoints;
+    const { displayBasePoints, displayBonusPoints } = useMemo(() => {
+        if (!isHistoryMode && currentUser?.points !== undefined) {
+            const total = Number(currentUser.points) || 0;
+            // Derive base from total and multiplier
+            const base = currentMultiplier > 1 ? Math.round(total / currentMultiplier) : total;
+            return { displayBasePoints: base, displayBonusPoints: total - base };
+        } else {
+            const total = Math.round(totalBasePoints * currentMultiplier);
+            return { displayBasePoints: totalBasePoints, displayBonusPoints: total - totalBasePoints };
+        }
+    }, [isHistoryMode, currentUser?.points, totalBasePoints, currentMultiplier]);
 
     const myRoleBadges = useMemo(() => {
         if (!currentUser?.roles || !roles) return [];
@@ -221,7 +223,7 @@ export const ProfileView = () => {
                 {myRoleBadges.length > 0 && (<div className="flex items-center justify-center gap-2 flex-wrap mb-3">{myRoleBadges.map(role => (<span key={role.code} className="text-[10px] px-2 py-0.5 rounded border font-bold shadow-sm" style={{ backgroundColor: role.color ? `${role.color}15` : '#f3f4f6', color: role.color || '#6b7280', borderColor: role.color ? `${role.color}40` : '#e5e7eb' }}>{role.label}</span>))}</div>)}
                 <div className="text-xs text-gray-400 mb-4">{isAdmin ? 'Administrator' : 'Trainer'}</div>
 
-                {(!isAdmin || isHistoryMode) && (<><div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800"><div><div className="text-2xl font-black text-slate-800 dark:text-white">{totalBasePoints}{bonusPoints > 0 && (<span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{bonusPoints})</span>)}</div><div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div></div><div><div className="text-2xl font-black text-slate-700 dark:text-slate-200">{mySubs.filter(s => s.status === 'approved').length}</div><div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div></div></div><div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800"><div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800"><h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400"><Icon name="Table" className="w-3 h-3" /> 任務進度統計</h3><Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" /></div>{showStats && (<div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">{statsData.pinned.totalTasks > 0 && (<div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30"><div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div><StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" /></div>)}{statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => { const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase; return (<div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700"><div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div><div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800"><span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span><span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span></div><div className="pl-2 space-y-4"><StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" /></div></div>); }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}</div>)}</div></>)}
+                {(!isAdmin || isHistoryMode) && (<><div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800"><div><div className="text-2xl font-black text-slate-800 dark:text-white">{displayBasePoints}{displayBonusPoints > 0 && (<span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{displayBonusPoints})</span>)}</div><div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div></div><div><div className="text-2xl font-black text-slate-700 dark:text-slate-200">{mySubs.filter(s => s.status === 'approved').length}</div><div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div></div></div><div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800"><div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800"><h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400"><Icon name="Table" className="w-3 h-3" /> 任務進度統計</h3><Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" /></div>{showStats && (<div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">{statsData.pinned.totalTasks > 0 && (<div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30"><div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div><StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" /></div>)}{statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => { const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase; return (<div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700"><div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div><div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800"><span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span><span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span></div><div className="pl-2 space-y-4"><StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" /></div></div>); }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}</div>)}</div></>)}
                 {!isHistoryMode && <Button variant="danger" onClick={logout} className="w-full bg-white border border-red-100 dark:bg-slate-900 dark:border-red-900/50" icon="LogOut">登出</Button>}
             </Card>
 
