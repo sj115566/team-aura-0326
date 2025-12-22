@@ -3,183 +3,162 @@
 @tailwind components;
 @tailwind utilities;
 
-
 /* 引入 Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
 
-
 /* 全域設定 */
 body {
- font-family: 'Noto Sans TC', sans-serif;
- -webkit-tap-highlight-color: transparent;
- overscroll-behavior-y: none;
- user-select: none;
- background-color: #f8fafc;
- color: #1e293b;
- transition: background-color 0.3s, color 0.3s;
+  font-family: 'Noto Sans TC', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  user-select: none;
+  background-color: #f8fafc;
+  color: #1e293b;
+  transition: background-color 0.3s, color 0.3s;
 }
-
 
 .dark body {
- background-color: #0f172a;
- color: #f1f5f9;
+  background-color: #0f172a;
+  color: #f1f5f9;
 }
-
 
 /* 輸入框與表單元素深色適配 */
-.dark input,
-.dark select,
+.dark input, 
+.dark select, 
 .dark textarea {
- background-color: #1e293b; /* bg-slate-800 */
- border-color: #334155; /* border-slate-700 */
- color: #f8fafc;
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155; /* border-slate-700 */
+  color: #f8fafc;
 }
 
-
-.dark input:focus,
-.dark select:focus,
+.dark input:focus, 
+.dark select:focus, 
 .dark textarea:focus {
- border-color: #6366f1;
+  border-color: #6366f1;
 }
-
 
 /* iOS 安全區域 */
 .safe-area-bottom {
- padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 .safe-area-top {
- padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top);
 }
-
 
 /* 動畫 */
 @keyframes fadeIn {
- from { opacity: 0; transform: scale(0.98); }
- to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
 }
 .animate-fadeIn {
- animation: fadeIn 0.2s ease-out forwards;
+  animation: fadeIn 0.2s ease-out forwards;
 }
-
 
 /* 捲軸美化 */
 .custom-scrollbar::-webkit-scrollbar {
- height: 8px;
- width: 8px;
+  height: 8px;
+  width: 8px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
- background: #f1f5f9;
- border-radius: 4px;
+  background: #f1f5f9;
+  border-radius: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
- background: #cbd5e1;
- border-radius: 4px;
+  background: #cbd5e1;
+  border-radius: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
- background: #94a3b8;
+  background: #94a3b8;
 }
-
 
 .dark .custom-scrollbar::-webkit-scrollbar-track {
- background: #1e293b;
+  background: #1e293b;
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
- background: #475569;
+  background: #475569;
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
- background: #64748b;
+  background: #64748b;
 }
-
 
 /* 輸入框允許選取 */
 input, textarea, .ql-editor {
- user-select: text;
+  user-select: text;
 }
-
 
 /* Quill Editor 樣式修正 (亮色預設) */
 .ql-toolbar.ql-snow {
- border-top-left-radius: 0.5rem;
- border-top-right-radius: 0.5rem;
- border-color: #e2e8f0;
- background-color: #f8fafc;
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  border-color: #e2e8f0;
+  background-color: #f8fafc;
 }
 .ql-container.ql-snow {
- border-bottom-left-radius: 0.5rem; /* 配合 RichTextEditor 結構調整 */
- border-bottom-right-radius: 0.5rem;
- border-color: #e2e8f0;
- background: white;
+  border-bottom-left-radius: 0.5rem; /* 配合 RichTextEditor 結構調整 */
+  border-bottom-right-radius: 0.5rem;
+  border-color: #e2e8f0;
+  background: white;
 }
 .ql-editor {
- min-height: 150px;
- font-size: 16px;
- font-family: 'Noto Sans TC', sans-serif;
+  min-height: 150px;
+  font-size: 16px;
+  font-family: 'Noto Sans TC', sans-serif;
 }
-
 
 /* ------------------------------------------- */
 /* Quill Editor 深色模式適配 (Dark Mode) */
 /* ------------------------------------------- */
 .dark .ql-toolbar.ql-snow {
- background-color: #1e293b; /* bg-slate-800 */
- border-color: #334155;     /* border-slate-700 */
+  background-color: #1e293b; /* bg-slate-800 */
+  border-color: #334155;     /* border-slate-700 */
 }
-
 
 .dark .ql-container.ql-snow {
- background-color: #0f172a; /* bg-slate-900 (編輯區域比工具列深一點) */
- border-color: #334155;
- color: #f1f5f9;
+  background-color: #0f172a; /* bg-slate-900 (編輯區域比工具列深一點) */
+  border-color: #334155;
+  color: #f1f5f9;
 }
-
 
 /* 工具列圖示線條 (Stroke) 變白 */
 .dark .ql-snow .ql-stroke {
- stroke: #cbd5e1; /* slate-300 */
+  stroke: #cbd5e1; /* slate-300 */
 }
-
 
 /* 工具列圖示填充 (Fill) 變白 */
 .dark .ql-snow .ql-fill {
- fill: #cbd5e1;
+  fill: #cbd5e1;
 }
-
 
 /* 下拉選單箭頭與文字 */
 .dark .ql-snow .ql-picker {
- color: #cbd5e1;
+  color: #cbd5e1;
 }
-
 
 /* 下拉選單展開後的選項背景 */
 .dark .ql-snow .ql-picker-options {
- background-color: #1e293b;
- border-color: #334155;
- color: #cbd5e1;
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #cbd5e1;
 }
-
 
 /* Hover 狀態 */
 .dark .ql-snow .ql-picker-item:hover,
 .dark .ql-snow .ql-picker-label:hover,
 .dark .ql-snow .ql-picker-label.ql-active,
 .dark .ql-snow .ql-picker-item.ql-selected {
- color: #6366f1; /* indigo-500 */
+  color: #6366f1; /* indigo-500 */
 }
-
 
 .dark .ql-snow .ql-picker-label:hover .ql-stroke,
 .dark .ql-snow .ql-picker-label.ql-active .ql-stroke,
-.dark .ql-snow button:hover .ql-stroke,
+.dark .ql-snow button:hover .ql-stroke, 
 .dark .ql-snow button.ql-active .ql-stroke {
- stroke: #6366f1;
+  stroke: #6366f1;
 }
-
 
 .dark .ql-snow .ql-picker-label:hover .ql-fill,
 .dark .ql-snow .ql-picker-label.ql-active .ql-fill,
-.dark .ql-snow button:hover .ql-fill,
+.dark .ql-snow button:hover .ql-fill, 
 .dark .ql-snow button.ql-active .ql-fill {
- fill: #6366f1;
+  fill: #6366f1;
 }
-

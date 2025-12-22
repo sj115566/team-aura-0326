@@ -9,265 +9,289 @@ import { useGlobalData } from '../context/DataContext';
 import { useModals } from '../context/ModalContext';
 import { ListSkeleton } from '../components/ui/Skeleton';
 
-
 export const ProfileView = () => {
-   const {
-       currentUser, tasks, submissions, users, logout, isAdmin, isHistoryMode,
-       roles, categories, actions, currentMultiplier, dataLoading
-   } = useGlobalData();
-  
-   const { confirm } = useModals();
+    const { 
+        currentUser, tasks, submissions, users, logout, isAdmin, isHistoryMode,
+        roles, categories, actions, currentMultiplier, dataLoading
+    } = useGlobalData();
+    
+    const { confirm } = useModals(); 
 
+    const [roleModal, setRoleModal] = useState({ isOpen: false, id: null, code: '', label: '', percentage: 0, color: '#6366f1' });
+    const [catModal, setCatModal] = useState({ isOpen: false, id: null, label: '', color: '#6366f1', type: 'task', isSystem: false, systemTag: null });
+    const [categoryExpanded, setCategoryExpanded] = useState({ task: true, announcement: true });
+    const [showStats, setShowStats] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [historySort, setHistorySort] = useState('desc');
 
-   const [roleModal, setRoleModal] = useState({ isOpen: false, id: null, code: '', label: '', percentage: 0, color: '#6366f1' });
-   const [catModal, setCatModal] = useState({ isOpen: false, id: null, label: '', color: '#6366f1', type: 'task', isSystem: false, systemTag: null });
-   const [categoryExpanded, setCategoryExpanded] = useState({ task: true, announcement: true });
-   const [showStats, setShowStats] = useState(false);
-   const [showHistory, setShowHistory] = useState(false);
-   const [historySort, setHistorySort] = useState('desc');
+    const presetColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#64748b'];
+    
+    // ... Handlers (保持不變) ...
+    const handleOpenEditRole = (role) => {
+        const pct = Math.round((Number(role.multiplier) - 1) * 100);
+        setRoleModal({ isOpen: true, id: role.firestoreId, code: role.code, label: role.label, percentage: pct, color: role.color });
+    };
+    
+    const handleOpenAddRole = () => {
+        setRoleModal({ isOpen: true, id: null, code: '', label: '', percentage: 10, color: '#6366f1' });
+    };
 
+    const handleSaveRole = () => {
+        const multiplier = 1 + (Number(roleModal.percentage) / 100);
+        const data = { code: roleModal.code, label: roleModal.label, multiplier, color: roleModal.color };
+        if (roleModal.id) actions.updateRole(roleModal.id, data);
+        else actions.addRole(data);
+        setRoleModal({ ...roleModal, isOpen: false });
+    };
 
-   const presetColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#64748b'];
-  
-   // ... Handlers (保持不變) ...
-   const handleOpenEditRole = (role) => {
-       const pct = Math.round((Number(role.multiplier) - 1) * 100);
-       setRoleModal({ isOpen: true, id: role.firestoreId, code: role.code, label: role.label, percentage: pct, color: role.color });
-   };
-  
-   const handleOpenAddRole = () => {
-       setRoleModal({ isOpen: true, id: null, code: '', label: '', percentage: 10, color: '#6366f1' });
-   };
+    const handleDeleteRole = (id) => {
+        confirm({ title: "刪除身分組", message: "確定要刪除嗎？", onConfirm: () => actions.deleteRole(id) });
+    };
 
+    const handleOpenEditCat = (cat) => setCatModal({ isOpen: true, id: cat.firestoreId, label: cat.label, color: cat.color, type: cat.type, isSystem: !!cat.isSystem, systemTag: cat.systemTag });
+    const handleOpenAddCat = (type) => setCatModal({ isOpen: true, id: null, label: '', color: '#6366f1', type, isSystem: false, systemTag: null });
+    
+    const handleSaveCat = () => {
+        const data = { label: catModal.label, color: catModal.color, type: catModal.type, isSystem: catModal.isSystem, systemTag: catModal.systemTag };
+        if (catModal.id) actions.updateCategory(catModal.id, data);
+        else actions.addCategory(data);
+        setCatModal({ ...catModal, isOpen: false });
+    };
 
-   const handleSaveRole = () => {
-       const multiplier = 1 + (Number(roleModal.percentage) / 100);
-       const data = { code: roleModal.code, label: roleModal.label, multiplier, color: roleModal.color };
-       if (roleModal.id) actions.updateRole(roleModal.id, data);
-       else actions.addRole(data);
-       setRoleModal({ ...roleModal, isOpen: false });
-   };
+    const handleDeleteCat = (cat) => {
+        const isSystemTag = !!cat.systemTag || ['每日', '常駐'].includes(cat.label);
+        const message = isSystemTag ? `⚠️ 警告：\n「${cat.label}」是系統保留標籤。\n刪除它可能導致每日/常駐任務無法顯示。\n確定要強制刪除嗎？` : `確定要刪除分類「${cat.label}」嗎？`;
+        confirm({ title: "刪除分類", message, onConfirm: () => actions.deleteCategory(cat.firestoreId) });
+    };
 
+    const toggleCategoryExpand = (type) => setCategoryExpanded(prev => ({ ...prev, [type]: !prev[type] }));
 
-   const handleDeleteRole = (id) => {
-       confirm({ title: "刪除身分組", message: "確定要刪除嗎？", onConfirm: () => actions.deleteRole(id) });
-   };
+    // --- 核心資料處理：包含統計與提交紀錄 (已整合 Special Pinned 邏輯) ---
+    const { mySubs, pendingSubs, processedSubs, statsData, totalBasePoints } = useMemo(() => {
+        if (!submissions) return { mySubs:[], pendingSubs:[], processedSubs:[], statsData: { pinned: { totalTasks:0, completed:0, earnedBase:0, totalPts:0 }, weeks: [] }, totalBasePoints: 0 };
+        
+        const myRaw = submissions.filter(s => s.userDocId ? s.userDocId === currentUser.firestoreId : s.uid === (currentUser.username || currentUser.uid));
+        
+        // 1. 處理 mySubs：加入 taskTitle 與 week (含 SPECIAL_PINNED 判斷)
+        const my = myRaw.map(sub => {
+            const task = tasks.find(t => t.id === sub.taskId);
+            let weekGroup = task ? task.week : '?';
+            // 判斷是否為常駐/公告任務
+            if (task && (task.isPinned || weekGroup === 'Pinned')) {
+                weekGroup = 'SPECIAL_PINNED';
+            }
+            return {
+                ...sub,
+                taskTitle: task ? task.title : sub.taskId,
+                week: weekGroup,
+            };
+        }).sort((a, b) => b.timestamp - a.timestamp);
 
+        const pending = isAdmin ? submissions.filter(s => s.status === 'pending') : [];
+        const processed = isAdmin ? submissions.filter(s => s.status !== 'pending') : [];
+        
+        const stats = { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, weeks: {} };
+        let totalBase = 0;
 
-   const handleOpenEditCat = (cat) => setCatModal({ isOpen: true, id: cat.firestoreId, label: cat.label, color: cat.color, type: cat.type, isSystem: !!cat.isSystem, systemTag: cat.systemTag });
-   const handleOpenAddCat = (type) => setCatModal({ isOpen: true, id: null, label: '', color: '#6366f1', type, isSystem: false, systemTag: null });
-  
-   const handleSaveCat = () => {
-       const data = { label: catModal.label, color: catModal.color, type: catModal.type, isSystem: catModal.isSystem, systemTag: catModal.systemTag };
-       if (catModal.id) actions.updateCategory(catModal.id, data);
-       else actions.addCategory(data);
-       setCatModal({ ...catModal, isOpen: false });
-   };
+        if (!isAdmin || isHistoryMode) {
+            tasks.forEach(t => {
+                let type = 'seasonal';
+                if (t.isPinned) type = 'pinned';
+                if (type === 'pinned') {
+                    stats.pinned.totalTasks++;
+                    stats.pinned.totalPts += (Number(t.points) || 0);
+                } else {
+                    const w = t.week || 'Other';
+                    if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 } };
+                    stats.weeks[w][type].totalTasks++;
+                    stats.weeks[w][type].totalPts += (Number(t.points) || 0);
+                }
+            });
+            my.forEach(s => {
+                if (s.status === 'approved') {
+                    // 注意：這裡使用原始任務資料來計算統計，不需 SPECIAL_PINNED 邏輯
+                    const task = tasks.find(t => t.id === s.taskId);
+                    if (task) {
+                        const base = Number(s.points) || 0;
+                        totalBase += base;
+                        let type = task.isPinned ? 'pinned' : 'seasonal';
+                        if (type === 'pinned') {
+                            stats.pinned.completed++;
+                            stats.pinned.earnedBase += base;
+                        } else {
+                            const w = task.week || 'Other';
+                            if (stats.weeks[w]) {
+                                stats.weeks[w][type].completed++;
+                                stats.weeks[w][type].earnedBase += base;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        const sortedWeeks = Object.values(stats.weeks).sort((a, b) => parseInt(b.week) - parseInt(a.week));
+        return { mySubs: my, pendingSubs: pending, processedSubs: processed, statsData: { pinned: stats.pinned, weeks: sortedWeeks }, totalBasePoints: totalBase };
+    }, [tasks, submissions, currentUser, isAdmin, isHistoryMode]);
 
+    const finalTotalPoints = Math.round(totalBasePoints * currentMultiplier);
+    const bonusPoints = finalTotalPoints - totalBasePoints;
 
-   const handleDeleteCat = (cat) => {
-       const isSystemTag = !!cat.systemTag || ['每日', '常駐'].includes(cat.label);
-       const message = isSystemTag ? `⚠️ 警告：\n「${cat.label}」是系統保留標籤。\n刪除它可能導致每日/常駐任務無法顯示。\n確定要強制刪除嗎？` : `確定要刪除分類「${cat.label}」嗎？`;
-       confirm({ title: "刪除分類", message, onConfirm: () => actions.deleteCategory(cat.firestoreId) });
-   };
+    const myRoleBadges = useMemo(() => {
+        if (!currentUser?.roles || !roles) return [];
+        return roles.filter(r => currentUser.roles.includes(r.code));
+    }, [currentUser, roles]);
 
+    // --- 週次排序邏輯 (整合 Special Pinned 置頂) ---
+    const sortedHistoryWeeks = useMemo(() => {
+        const weeks = [...new Set(mySubs.map(s => s.week))];
+        
+        const hasPinned = weeks.includes('SPECIAL_PINNED');
+        const regularWeeks = weeks.filter(w => w !== 'SPECIAL_PINNED');
 
-   const toggleCategoryExpand = (type) => setCategoryExpanded(prev => ({ ...prev, [type]: !prev[type] }));
+        regularWeeks.sort((a,b) => {
+            const na = parseInt(a), nb = parseInt(b);
+            const compare = (!isNaN(na) && !isNaN(nb)) ? na - nb : a.localeCompare(b);
+            return historySort === 'asc' ? compare : -compare;
+        });
+        
+        // 將常駐任務區塊永遠放在最上面
+        return hasPinned ? ['SPECIAL_PINNED', ...regularWeeks] : regularWeeks;
+    }, [mySubs, historySort]);
 
+    const StatProgress = ({ title, data, colorClass, barColorClass }) => {
+        if (!data || data.totalTasks === 0) return null;
+        const percent = data.totalPts > 0 ? Math.min(100, (data.completed / data.totalTasks) * 100) : 0;
+        return (
+            <div className="mb-3 last:mb-0">
+                <div className="flex justify-between mb-1 text-xs">
+                    <span className={`font-bold ${colorClass}`}>{title}</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{data.earnedBase} <span className="text-[10px] font-normal">Pts</span> <span className="text-gray-400 text-[9px]">/ {data.totalPts} Pts</span></span>
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>完成度</span><span>{data.completed} / {data.totalTasks}</span></div>
+                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden dark:bg-slate-700"><div className={`h-1.5 rounded-full transition-all duration-500 ${barColorClass}`} style={{ width: `${percent}%` }}></div></div>
+            </div>
+        );
+    };
 
-   const { mySubs, pendingSubs, processedSubs, statsData, totalBasePoints } = useMemo(() => {
-       if (!submissions) return { mySubs:[], pendingSubs:[], processedSubs:[], statsData: { pinned: { totalTasks:0, completed:0, earnedBase:0, totalPts:0 }, weeks: [] }, totalBasePoints: 0 };
-       const my = submissions.filter(s => s.userDocId ? s.userDocId === currentUser.firestoreId : s.uid === (currentUser.username || currentUser.uid));
-       const pending = isAdmin ? submissions.filter(s => s.status === 'pending') : [];
-       const processed = isAdmin ? submissions.filter(s => s.status !== 'pending') : [];
-      
-       const stats = { pinned: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, weeks: {} };
-       let totalBase = 0;
+    const CategorySection = ({ title, type, list, onAdd }) => (
+        <div className="mb-4 last:mb-0">
+            <div onClick={() => toggleCategoryExpand(type)} className="flex justify-between items-center mb-2 px-1 cursor-pointer select-none group">
+                <div className="flex items-center gap-2"><Icon name={categoryExpanded[type] ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400 group-hover:text-slate-600 dark:group-hover:text-slate-300" /><h3 className="font-bold text-slate-700 text-sm group-hover:text-indigo-600 transition-colors dark:text-slate-200 dark:group-hover:text-indigo-400">{title}</h3><Badge color="gray" className="text-[10px]">{list.length}</Badge></div>
+                <button onClick={(e) => { e.stopPropagation(); onAdd(); }} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 transition-colors dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50">+ 新增</button>
+            </div>
+            {categoryExpanded[type] && (
+                <Card noPadding>
+                    <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                        {list.length > 0 ? list.map((cat) => (
+                            <div key={cat.firestoreId} className="p-3 flex justify-between items-center text-sm">
+                                <div className="flex items-center gap-2"><span className="text-[10px] px-2 py-0.5 rounded text-white font-bold shadow-sm" style={{ backgroundColor: cat.color }}>{cat.label}</span>{cat.systemTag && <span className="text-[9px] text-gray-400 bg-gray-100 px-1 rounded dark:bg-slate-700 dark:text-slate-400">System: {cat.systemTag}</span>}</div>
+                                <div className="flex gap-1"><button onClick={() => handleOpenEditCat(cat)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-500 transition-colors dark:hover:bg-slate-700"><Icon name="Edit2" className="w-3.5 h-3.5"/></button><button onClick={() => handleDeleteCat(cat)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors dark:hover:bg-slate-700"><Icon name="Trash2" className="w-3.5 h-3.5"/></button></div>
+                            </div>
+                        )) : <div className="p-4 text-center text-xs text-gray-400">尚無{title}設定</div>}
+                    </div>
+                </Card>
+            )}
+        </div>
+    );
+    
+    if (dataLoading) return <ListSkeleton />;
 
+    return (
+        <div className="animate-fadeIn space-y-6">
+            <Card className="text-center">
+                <h2 className="font-black text-xl text-slate-800 break-all mb-2 dark:text-white">{currentUser.username || currentUser.uid}</h2>
+                {myRoleBadges.length > 0 && (<div className="flex items-center justify-center gap-2 flex-wrap mb-3">{myRoleBadges.map(role => (<span key={role.code} className="text-[10px] px-2 py-0.5 rounded border font-bold shadow-sm" style={{ backgroundColor: role.color ? `${role.color}15` : '#f3f4f6', color: role.color || '#6b7280', borderColor: role.color ? `${role.color}40` : '#e5e7eb' }}>{role.label}</span>))}</div>)}
+                <div className="text-xs text-gray-400 mb-4">{isAdmin ? 'Administrator' : 'Trainer'}</div>
+                
+                {(!isAdmin || isHistoryMode) && (<><div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800"><div><div className="text-2xl font-black text-slate-800 dark:text-white">{totalBasePoints}{bonusPoints > 0 && (<span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{bonusPoints})</span>)}</div><div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div></div><div><div className="text-2xl font-black text-slate-700 dark:text-slate-200">{mySubs.filter(s => s.status === 'approved').length}</div><div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div></div></div><div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800"><div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800"><h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400"><Icon name="Table" className="w-3 h-3" /> 任務進度統計</h3><Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" /></div>{showStats && (<div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">{statsData.pinned.totalTasks > 0 && (<div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30"><div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div><StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" /></div>)}{statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => { const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase; return (<div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700"><div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div><div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800"><span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span><span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span></div><div className="pl-2 space-y-4"><StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" /></div></div>); }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}</div>)}</div></>)}
+                {!isHistoryMode && <Button variant="danger" onClick={logout} className="w-full bg-white border border-red-100 dark:bg-slate-900 dark:border-red-900/50" icon="LogOut">登出</Button>}
+            </Card>
 
-       if (!isAdmin || isHistoryMode) {
-           tasks.forEach(t => {
-               let type = 'seasonal';
-               if (t.isPinned) type = 'pinned';
-               if (type === 'pinned') {
-                   stats.pinned.totalTasks++;
-                   stats.pinned.totalPts += (Number(t.points) || 0);
-               } else {
-                   const w = t.week || 'Other';
-                   if (!stats.weeks[w]) stats.weeks[w] = { week: w, daily: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 }, seasonal: { totalTasks: 0, completed: 0, earnedBase: 0, totalPts: 0 } };
-                   stats.weeks[w][type].totalTasks++;
-                   stats.weeks[w][type].totalPts += (Number(t.points) || 0);
-               }
-           });
-           my.forEach(s => {
-               if (s.status === 'approved') {
-                   const task = tasks.find(t => t.id === s.taskId);
-                   if (task) {
-                       const base = Number(s.points) || 0;
-                       totalBase += base;
-                       let type = task.isPinned ? 'pinned' : 'seasonal';
-                       if (type === 'pinned') {
-                           stats.pinned.completed++;
-                           stats.pinned.earnedBase += base;
-                       } else {
-                           const w = task.week || 'Other';
-                           if (stats.weeks[w]) {
-                               stats.weeks[w][type].completed++;
-                               stats.weeks[w][type].earnedBase += base;
-                           }
-                       }
-                   }
-               }
-           });
-       }
-       const sortedWeeks = Object.values(stats.weeks).sort((a, b) => parseInt(b.week) - parseInt(a.week));
-       return { mySubs: my, pendingSubs: pending, processedSubs: processed, statsData: { pinned: stats.pinned, weeks: sortedWeeks }, totalBasePoints: totalBase };
-   }, [tasks, submissions, currentUser, isAdmin, isHistoryMode]);
+            {(!isAdmin || isHistoryMode) && mySubs.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2"><h3 className="font-bold text-slate-700 text-sm ml-1 dark:text-slate-200">提交紀錄</h3><button onClick={() => setHistorySort(prev => prev === 'desc' ? 'asc' : 'desc')} className="p-1 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors dark:hover:bg-slate-800"><Icon name={historySort === 'desc' ? "ArrowDown" : "ArrowUp"} className="w-3 h-3" /></button></div>
+                  {sortedHistoryWeeks.map(week => (
+                    <Card key={week} noPadding>
+                      <div className="bg-gray-50 px-4 py-2 text-xs font-bold text-gray-500 border-b border-gray-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400">
+                          {week === 'SPECIAL_PINNED' ? '常駐與公告任務' : `第 ${week} 週`}
+                      </div>
+                      <div className="divide-y divide-gray-50 dark:divide-slate-800">
+                        {mySubs.filter(s => s.week === week).map(sub => (
+                            <div key={sub.id} className="p-3 flex justify-between items-center text-sm">
+                                <span className="font-medium text-slate-700 dark:text-slate-300">{sub.taskTitle}</span>
+                                <div className="flex items-center gap-2">
+                                    {sub.status === 'approved' && (
+                                        <div className="text-xs">
+                                            <span className="font-bold text-slate-900 dark:text-white">{Number(sub.points) || 0} <span className="text-[10px] font-normal">Pts</span></span>
+                                        </div>
+                                    )}
+                                    <Badge className={
+                                        sub.status === 'approved' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 
+                                        sub.status === 'rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' : 
+                                        sub.status === 'withdrawn' ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400' : 
+                                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300'
+                                    }>
+                                        {sub.status === 'approved' ? '完成' : sub.status === 'rejected' ? '退回' : sub.status === 'withdrawn' ? '已撤回' : '審核中'}
+                                    </Badge>
+                                </div>
+                            </div>
+                        ))}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+            )}
 
-
-   const finalTotalPoints = Math.round(totalBasePoints * currentMultiplier);
-   const bonusPoints = finalTotalPoints - totalBasePoints;
-
-
-   const myRoleBadges = useMemo(() => {
-       if (!currentUser?.roles || !roles) return [];
-       return roles.filter(r => currentUser.roles.includes(r.code));
-   }, [currentUser, roles]);
-
-
-   const sortedHistoryWeeks = useMemo(() => {
-       return [...new Set(mySubs.map(s => s.week))].sort((a,b) => {
-           const na = parseInt(a), nb = parseInt(b);
-           const compare = (!isNaN(na) && !isNaN(nb)) ? na - nb : a.localeCompare(b);
-           return historySort === 'asc' ? compare : -compare;
-       });
-   }, [mySubs, historySort]);
-
-
-   const StatProgress = ({ title, data, colorClass, barColorClass }) => {
-       if (!data || data.totalTasks === 0) return null;
-       const percent = data.totalPts > 0 ? Math.min(100, (data.completed / data.totalTasks) * 100) : 0;
-       return (
-           <div className="mb-3 last:mb-0">
-               <div className="flex justify-between mb-1 text-xs">
-                   <span className={`font-bold ${colorClass}`}>{title}</span>
-                   <span className="font-bold text-slate-700 dark:text-slate-200">{data.earnedBase} <span className="text-[10px] font-normal">Pts</span> <span className="text-gray-400 text-[9px]">/ {data.totalPts} Pts</span></span>
-               </div>
-               <div className="flex justify-between text-[10px] text-gray-400 mb-1"><span>完成度</span><span>{data.completed} / {data.totalTasks}</span></div>
-               <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden dark:bg-slate-700"><div className={`h-1.5 rounded-full transition-all duration-500 ${barColorClass}`} style={{ width: `${percent}%` }}></div></div>
-           </div>
-       );
-   };
-
-
-   const CategorySection = ({ title, type, list, onAdd }) => (
-       <div className="mb-4 last:mb-0">
-           <div onClick={() => toggleCategoryExpand(type)} className="flex justify-between items-center mb-2 px-1 cursor-pointer select-none group">
-               <div className="flex items-center gap-2"><Icon name={categoryExpanded[type] ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400 group-hover:text-slate-600 dark:group-hover:text-slate-300" /><h3 className="font-bold text-slate-700 text-sm group-hover:text-indigo-600 transition-colors dark:text-slate-200 dark:group-hover:text-indigo-400">{title}</h3><Badge color="gray" className="text-[10px]">{list.length}</Badge></div>
-               <button onClick={(e) => { e.stopPropagation(); onAdd(); }} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 transition-colors dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50">+ 新增</button>
-           </div>
-           {categoryExpanded[type] && (
-               <Card noPadding>
-                   <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                       {list.length > 0 ? list.map((cat) => (
-                           <div key={cat.firestoreId} className="p-3 flex justify-between items-center text-sm">
-                               <div className="flex items-center gap-2"><span className="text-[10px] px-2 py-0.5 rounded text-white font-bold shadow-sm" style={{ backgroundColor: cat.color }}>{cat.label}</span>{cat.systemTag && <span className="text-[9px] text-gray-400 bg-gray-100 px-1 rounded dark:bg-slate-700 dark:text-slate-400">System: {cat.systemTag}</span>}</div>
-                               <div className="flex gap-1"><button onClick={() => handleOpenEditCat(cat)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-500 transition-colors dark:hover:bg-slate-700"><Icon name="Edit2" className="w-3.5 h-3.5"/></button><button onClick={() => handleDeleteCat(cat)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors dark:hover:bg-slate-700"><Icon name="Trash2" className="w-3.5 h-3.5"/></button></div>
-                           </div>
-                       )) : <div className="p-4 text-center text-xs text-gray-400">尚無{title}設定</div>}
-                   </div>
-               </Card>
-           )}
-       </div>
-   );
-  
-   if (dataLoading) return <ListSkeleton />;
-
-
-   return (
-       <div className="animate-fadeIn space-y-6">
-           <Card className="text-center">
-               <h2 className="font-black text-xl text-slate-800 break-all mb-2 dark:text-white">{currentUser.username || currentUser.uid}</h2>
-               {myRoleBadges.length > 0 && (<div className="flex items-center justify-center gap-2 flex-wrap mb-3">{myRoleBadges.map(role => (<span key={role.code} className="text-[10px] px-2 py-0.5 rounded border font-bold shadow-sm" style={{ backgroundColor: role.color ? `${role.color}15` : '#f3f4f6', color: role.color || '#6b7280', borderColor: role.color ? `${role.color}40` : '#e5e7eb' }}>{role.label}</span>))}</div>)}
-               <div className="text-xs text-gray-400 mb-4">{isAdmin ? 'Administrator' : 'Trainer'}</div>
-              
-               {(!isAdmin || isHistoryMode) && (<><div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mb-4 dark:border-slate-800"><div><div className="text-2xl font-black text-slate-800 dark:text-white">{totalBasePoints}{bonusPoints > 0 && (<span className="text-lg text-indigo-600 ml-1 dark:text-indigo-400">(+{bonusPoints})</span>)}</div><div className="text-[10px] text-gray-400 uppercase font-bold">總積分</div></div><div><div className="text-2xl font-black text-slate-700 dark:text-slate-200">{mySubs.filter(s => s.status === 'approved').length}</div><div className="text-[10px] text-gray-400 uppercase font-bold">完成任務</div></div></div><div className="text-left bg-gray-50 rounded-xl mb-4 border border-gray-100 overflow-hidden dark:bg-slate-800/50 dark:border-slate-800"><div onClick={() => setShowStats(!showStats)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-100 transition-colors dark:hover:bg-slate-800"><h3 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-1 dark:text-slate-400"><Icon name="Table" className="w-3 h-3" /> 任務進度統計</h3><Icon name={showStats ? "ChevronDown" : "ChevronRight"} className="w-4 h-4 text-gray-400" /></div>{showStats && (<div className="px-4 pb-4 animate-fadeIn space-y-4 border-t border-gray-100 pt-4 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-800">{statsData.pinned.totalTasks > 0 && (<div className="bg-white p-3 rounded-lg border border-red-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-red-900/30"><div className="absolute top-0 left-0 w-1 h-full bg-red-400"></div><StatProgress title="常駐與公告任務" data={statsData.pinned} colorClass="text-red-500" barColorClass="bg-red-400" /></div>)}{statsData.weeks.length > 0 ? statsData.weeks.map(weekItem => { const weekTotalBase = weekItem.daily.earnedBase + weekItem.seasonal.earnedBase; return (<div key={weekItem.week} className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm relative overflow-hidden dark:bg-slate-900 dark:border-slate-700"><div className="absolute top-0 left-0 w-1 h-full bg-indigo-400"></div><div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-50 pl-2 dark:border-slate-800"><span className="font-bold text-slate-700 text-sm dark:text-slate-200">第 {weekItem.week} 週</span><span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full dark:bg-indigo-900/30 dark:text-indigo-400">本週合計: {weekTotalBase} Pts</span></div><div className="pl-2 space-y-4"><StatProgress title="本週任務" data={weekItem.seasonal} colorClass="text-slate-600 dark:text-slate-400" barColorClass="bg-indigo-400" /></div></div>); }) : !statsData.pinned.totalTasks && <div className="text-xs text-gray-400 text-center py-2">尚無統計資料</div>}</div>)}</div></>)}
-               {!isHistoryMode && <Button variant="danger" onClick={logout} className="w-full bg-white border border-red-100 dark:bg-slate-900 dark:border-red-900/50" icon="LogOut">登出</Button>}
-           </Card>
-
-
-           {(!isAdmin || isHistoryMode) && mySubs.length > 0 && (
-               <div className="space-y-4">
-                 <div className="flex items-center gap-2"><h3 className="font-bold text-slate-700 text-sm ml-1 dark:text-slate-200">提交紀錄</h3><button onClick={() => setHistorySort(prev => prev === 'desc' ? 'asc' : 'desc')} className="p-1 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors dark:hover:bg-slate-800"><Icon name={historySort === 'desc' ? "ArrowDown" : "ArrowUp"} className="w-3 h-3" /></button></div>
-                 {sortedHistoryWeeks.map(week => (
-                   <Card key={week} noPadding>
-                     <div className="bg-gray-50 px-4 py-2 text-xs font-bold text-gray-500 border-b border-gray-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400">第 {week} 週</div>
-                     <div className="divide-y divide-gray-50 dark:divide-slate-800">
-                       {mySubs.filter(s => s.week === week).map(sub => (
-                           <div key={sub.id} className="p-3 flex justify-between items-center text-sm"><span className="font-medium text-slate-700 dark:text-slate-300">{sub.taskTitle}</span><div className="flex items-center gap-2">{sub.status === 'approved' && <div className="text-xs"><span className="font-bold text-slate-900 dark:text-white">{Number(sub.points) || 0} <span className="text-[10px] font-normal">Pts</span></span></div>}<Badge color={sub.status === 'approved' ? 'green' : sub.status === 'rejected' ? 'red' : 'yellow'}>{sub.status === 'approved' ? '完成' : sub.status === 'rejected' ? '退回' : '審核中'}</Badge></div></div>
-                       ))}
+            {isAdmin && <AdminConsole pendingSubs={pendingSubs} processedSubs={processedSubs} tasks={tasks} onReview={actions.review} showHistory={showHistory} toggleHistory={() => setShowHistory(!showHistory)} isHistoryMode={isHistoryMode} users={users} />}
+            
+            {isAdmin && !isHistoryMode && (
+                <div className="mt-6 space-y-6">
+                     {/* 1. 身分組設定 (Role Section) */}
+                     <div>
+                        <div className="flex justify-between items-center mb-2 px-1"><h3 className="font-bold text-slate-700 text-sm dark:text-slate-200">身分組設定 (加成系統)</h3><button onClick={handleOpenAddRole} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50">+ 新增</button></div>
+                        <Card noPadding><div className="divide-y divide-gray-50 dark:divide-slate-800">{(roles || []).length > 0 ? (roles || []).map(role => { const pct = Math.round((Number(role.multiplier) - 1) * 100); return (<div key={role.firestoreId} className="p-3 flex justify-between items-center text-sm"><div className="flex items-center gap-2"><span className="font-mono text-xs bg-gray-100 px-1 rounded text-gray-500 dark:bg-slate-700 dark:text-slate-300">{role.code}</span><span style={{color: role.color}} className="font-bold">{role.label}</span><span className="text-xs text-gray-400">{pct > 0 ? `+${pct}%` : '0%'}</span></div><div className="flex gap-1"><button onClick={() => handleOpenEditRole(role)} className="p-1 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400"><Icon name="Edit2" className="w-3 h-3"/></button><button onClick={() => handleDeleteRole(role.firestoreId)} className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"><Icon name="Trash2" className="w-3 h-3"/></button></div></div>); }) : <div className="p-4 text-center text-xs text-gray-400">尚無身分組設定</div>}</div></Card>
                      </div>
-                   </Card>
-                 ))}
-               </div>
-           )}
 
+                     {/* 2. 分類標籤設定 (Category Section) */}
+                     <div>
+                        <div className="flex justify-between items-center mb-2 px-1"><h3 className="font-bold text-slate-700 text-sm dark:text-slate-200">分類標籤管理</h3></div>
+                        <CategorySection title="任務分類" type="task" list={(categories || []).filter(c => c.type !== 'announcement')} onAdd={() => handleOpenAddCat('task')} />
+                        <CategorySection title="公告分類" type="announcement" list={(categories || []).filter(c => c.type === 'announcement')} onAdd={() => handleOpenAddCat('announcement')} />
+                     </div>
 
-           {isAdmin && <AdminConsole pendingSubs={pendingSubs} processedSubs={processedSubs} tasks={tasks} onReview={actions.review} showHistory={showHistory} toggleHistory={() => setShowHistory(!showHistory)} isHistoryMode={isHistoryMode} users={users} />}
-          
-           {isAdmin && !isHistoryMode && (
-               <div className="mt-6 space-y-6">
-                    {/* 1. 身分組設定 (Role Section) */}
+                     {/* System Buttons */}
+                     <div className="mt-4 pt-4 border-t border-slate-200 space-y-3 dark:border-slate-800">
+                          <button onClick={() => confirm({ title: "匯入預設", message: "確定要匯入預設分類標籤？", onConfirm: actions.restoreDefaultCategories })} className="w-full bg-slate-200 text-slate-600 text-xs py-2 rounded-lg hover:bg-slate-300 flex items-center justify-center gap-2 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"><Icon name="RefreshCw" className="w-3 h-3" />匯入預設分類</button>
+                          <button onClick={() => confirm({ title: "修復連結", message: "確定要修復提交紀錄的 User ID 連結嗎？", onConfirm: actions.fixSubmissionLinks })} className="w-full bg-slate-200 text-slate-600 text-xs py-2 rounded-lg hover:bg-slate-300 flex items-center justify-center gap-2 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"><Icon name="RefreshCw" className="w-3 h-3" />修復提交紀錄連結</button>
+                          <button onClick={() => confirm({ title: "⚠️ 強制重置", message: "此操作將「永久刪除」所有任務、公告與提交紀錄！請再次確認！", onConfirm: actions.hardResetSystem })} className="w-full bg-red-100 text-red-600 text-xs py-2 rounded-lg hover:bg-red-200 flex items-center justify-center gap-2 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"><Icon name="Trash2" className="w-3 h-3" />[危險] 強制重置系統</button>
+                     </div>
+                </div>
+            )}
+            
+            {/* Role Modal */}
+            <Modal isOpen={roleModal.isOpen} onClose={() => setRoleModal({...roleModal, isOpen: false})} title={roleModal.id ? "編輯身分組" : "新增身分組"}>
+                <div className="space-y-4">
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">代號 (唯一 ID)</label><input className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="如: vip, mod" value={roleModal.code} onChange={e => setRoleModal({...roleModal, code: e.target.value})} disabled={!!roleModal.id} /></div>
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">顯示名稱</label><input className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.label} onChange={e => setRoleModal({...roleModal, label: e.target.value})} /></div>
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">積分加成 (%)</label><div className="flex items-center gap-2"><input type="number" className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.percentage} onChange={e => setRoleModal({...roleModal, percentage: e.target.value})} /><span className="text-sm font-bold text-gray-500">%</span></div></div>
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">標籤顏色</label><div className="flex flex-wrap gap-2 mb-2">{presetColors.map(color => (<button key={color} type="button" onClick={() => setRoleModal({...roleModal, color})} className={`w-6 h-6 rounded-full border-2 ${roleModal.color === color ? 'border-gray-600 scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />))}</div><div className="flex items-center gap-2"><input type="color" className="w-10 h-10 p-1 border rounded cursor-pointer shrink-0" value={roleModal.color} onChange={e => setRoleModal({...roleModal, color: e.target.value})} /><input type="text" className="w-full p-2 border rounded text-sm uppercase dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.color} onChange={e => setRoleModal({...roleModal, color: e.target.value})} /></div></div>
+                    <Button onClick={handleSaveRole} className="w-full">儲存</Button>
+                </div>
+            </Modal>
+            
+            {/* Category Modal */}
+            <Modal isOpen={catModal.isOpen} onClose={() => setCatModal({...catModal, isOpen: false})} title={catModal.id ? "編輯分類" : "新增分類"}>
+                <div className="space-y-4">
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">分類名稱</label><input className="w-full p-2 border rounded mt-1 text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.label} onChange={e => setCatModal({...catModal, label: e.target.value})} /></div>
                     <div>
-                       <div className="flex justify-between items-center mb-2 px-1"><h3 className="font-bold text-slate-700 text-sm dark:text-slate-200">身分組設定 (加成系統)</h3><button onClick={handleOpenAddRole} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50">+ 新增</button></div>
-                       <Card noPadding><div className="divide-y divide-gray-50 dark:divide-slate-800">{(roles || []).length > 0 ? (roles || []).map(role => { const pct = Math.round((Number(role.multiplier) - 1) * 100); return (<div key={role.firestoreId} className="p-3 flex justify-between items-center text-sm"><div className="flex items-center gap-2"><span className="font-mono text-xs bg-gray-100 px-1 rounded text-gray-500 dark:bg-slate-700 dark:text-slate-300">{role.code}</span><span style={{color: role.color}} className="font-bold">{role.label}</span><span className="text-xs text-gray-400">{pct > 0 ? `+${pct}%` : '0%'}</span></div><div className="flex gap-1"><button onClick={() => handleOpenEditRole(role)} className="p-1 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400"><Icon name="Edit2" className="w-3 h-3"/></button><button onClick={() => handleDeleteRole(role.firestoreId)} className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400"><Icon name="Trash2" className="w-3 h-3"/></button></div></div>); }) : <div className="p-4 text-center text-xs text-gray-400">尚無身分組設定</div>}</div></Card>
+                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400">適用類型</label>
+                        <select className="w-full p-2 border rounded mt-1 text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.type} onChange={e => setCatModal({...catModal, type: e.target.value})}><option value="task">任務 (Task)</option><option value="announcement">公告 (Announcement)</option></select>
                     </div>
-
-
-                    {/* 2. 分類標籤設定 (Category Section) */}
-                    <div>
-                       <div className="flex justify-between items-center mb-2 px-1"><h3 className="font-bold text-slate-700 text-sm dark:text-slate-200">分類標籤管理</h3></div>
-                       <CategorySection title="任務分類" type="task" list={(categories || []).filter(c => c.type !== 'announcement')} onAdd={() => handleOpenAddCat('task')} />
-                       <CategorySection title="公告分類" type="announcement" list={(categories || []).filter(c => c.type === 'announcement')} onAdd={() => handleOpenAddCat('announcement')} />
-                    </div>
-
-
-                    {/* System Buttons */}
-                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-3 dark:border-slate-800">
-                         <button onClick={() => confirm({ title: "匯入預設", message: "確定要匯入預設分類標籤？", onConfirm: actions.restoreDefaultCategories })} className="w-full bg-slate-200 text-slate-600 text-xs py-2 rounded-lg hover:bg-slate-300 flex items-center justify-center gap-2 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"><Icon name="RefreshCw" className="w-3 h-3" />匯入預設分類</button>
-                         <button onClick={() => confirm({ title: "修復連結", message: "確定要修復提交紀錄的 User ID 連結嗎？", onConfirm: actions.fixSubmissionLinks })} className="w-full bg-slate-200 text-slate-600 text-xs py-2 rounded-lg hover:bg-slate-300 flex items-center justify-center gap-2 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"><Icon name="RefreshCw" className="w-3 h-3" />修復提交紀錄連結</button>
-                         <button onClick={() => confirm({ title: "⚠️ 強制重置", message: "此操作將「永久刪除」所有任務、公告與提交紀錄！請再次確認！", onConfirm: actions.hardResetSystem })} className="w-full bg-red-100 text-red-600 text-xs py-2 rounded-lg hover:bg-red-200 flex items-center justify-center gap-2 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"><Icon name="Trash2" className="w-3 h-3" />[危險] 強制重置系統</button>
-                    </div>
-               </div>
-           )}
-          
-           {/* Role Modal */}
-           <Modal isOpen={roleModal.isOpen} onClose={() => setRoleModal({...roleModal, isOpen: false})} title={roleModal.id ? "編輯身分組" : "新增身分組"}>
-               <div className="space-y-4">
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">代號 (唯一 ID)</label><input className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="如: vip, mod" value={roleModal.code} onChange={e => setRoleModal({...roleModal, code: e.target.value})} disabled={!!roleModal.id} /></div>
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">顯示名稱</label><input className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.label} onChange={e => setRoleModal({...roleModal, label: e.target.value})} /></div>
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">積分加成 (%)</label><div className="flex items-center gap-2"><input type="number" className="w-full p-2 border rounded text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.percentage} onChange={e => setRoleModal({...roleModal, percentage: e.target.value})} /><span className="text-sm font-bold text-gray-500">%</span></div></div>
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">標籤顏色</label><div className="flex flex-wrap gap-2 mb-2">{presetColors.map(color => (<button key={color} type="button" onClick={() => setRoleModal({...roleModal, color})} className={`w-6 h-6 rounded-full border-2 ${roleModal.color === color ? 'border-gray-600 scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />))}</div><div className="flex items-center gap-2"><input type="color" className="w-10 h-10 p-1 border rounded cursor-pointer shrink-0" value={roleModal.color} onChange={e => setRoleModal({...roleModal, color: e.target.value})} /><input type="text" className="w-full p-2 border rounded text-sm uppercase dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={roleModal.color} onChange={e => setRoleModal({...roleModal, color: e.target.value})} /></div></div>
-                   <Button onClick={handleSaveRole} className="w-full">儲存</Button>
-               </div>
-           </Modal>
-          
-           {/* Category Modal */}
-           <Modal isOpen={catModal.isOpen} onClose={() => setCatModal({...catModal, isOpen: false})} title={catModal.id ? "編輯分類" : "新增分類"}>
-               <div className="space-y-4">
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">分類名稱</label><input className="w-full p-2 border rounded mt-1 text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.label} onChange={e => setCatModal({...catModal, label: e.target.value})} /></div>
-                   <div>
-                       <label className="text-xs font-bold text-gray-500 dark:text-slate-400">適用類型</label>
-                       <select className="w-full p-2 border rounded mt-1 text-sm dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.type} onChange={e => setCatModal({...catModal, type: e.target.value})}><option value="task">任務 (Task)</option><option value="announcement">公告 (Announcement)</option></select>
-                   </div>
-                   <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">標籤顏色</label><div className="flex flex-wrap gap-2 mb-2">{presetColors.map(color => (<button key={color} type="button" onClick={() => setCatModal({...catModal, color})} className={`w-6 h-6 rounded-full border-2 ${catModal.color === color ? 'border-gray-600 scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />))}</div><div className="flex items-center gap-2"><input type="color" className="w-10 h-10 p-1 border rounded cursor-pointer shrink-0" value={catModal.color} onChange={e => setCatModal({...catModal, color: e.target.value})} /><input type="text" className="w-full p-2 border rounded text-sm uppercase dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.color} onChange={e => setCatModal({...catModal, color: e.target.value})} /></div></div>
-                   {catModal.systemTag && <div className="text-[10px] text-indigo-500 bg-indigo-50 p-2 rounded dark:bg-indigo-900/30 dark:text-indigo-300">此為系統保留標籤 ({catModal.systemTag})，若修改名稱，關聯的任務依然會留在原系統區塊。</div>}
-                   <Button onClick={handleSaveCat} className="w-full">儲存</Button>
-               </div>
-           </Modal>
-       </div>
-   );
+                    <div><label className="text-xs font-bold text-gray-500 mb-1 block dark:text-slate-400">標籤顏色</label><div className="flex flex-wrap gap-2 mb-2">{presetColors.map(color => (<button key={color} type="button" onClick={() => setCatModal({...catModal, color})} className={`w-6 h-6 rounded-full border-2 ${catModal.color === color ? 'border-gray-600 scale-110' : 'border-transparent'}`} style={{ backgroundColor: color }} />))}</div><div className="flex items-center gap-2"><input type="color" className="w-10 h-10 p-1 border rounded cursor-pointer shrink-0" value={catModal.color} onChange={e => setCatModal({...catModal, color: e.target.value})} /><input type="text" className="w-full p-2 border rounded text-sm uppercase dark:bg-slate-800 dark:border-slate-700 dark:text-white" value={catModal.color} onChange={e => setCatModal({...catModal, color: e.target.value})} /></div></div>
+                    {catModal.systemTag && <div className="text-[10px] text-indigo-500 bg-indigo-50 p-2 rounded dark:bg-indigo-900/30 dark:text-indigo-300">此為系統保留標籤 ({catModal.systemTag})，若修改名稱，關聯的任務依然會留在原系統區塊。</div>}
+                    <Button onClick={handleSaveCat} className="w-full">儲存</Button>
+                </div>
+            </Modal>
+        </div>
+    );
 };
-
-
-

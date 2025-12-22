@@ -1,113 +1,98 @@
 name: Deploy to GitHub Pages
 
-
 on:
- push:
-   branches: [ main ] # 或者是 'master'，看你的主分支名稱
-
+  push:
+    branches: [ main ] # 或者是 'master'，看你的主分支名稱
 
 permissions:
- contents: read
- pages: write
- id-token: write
-
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
- build:
-   runs-on: ubuntu-latest
-   steps:
-     - name: Checkout
-       uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
 
-     - name: Setup Node
-       uses: actions/setup-node@v4
-       with:
-         node-version: 20
-         cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
 
+      - name: Build
+        run: npm run build
+        env:
+          # ⚠️ 非常重要：在這裡填入你的 Firebase 環境變數
+          # 這樣 GitHub 機器人在打包時才能把鑰匙寫進去
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+     
+# ======================================================
+      # ▼▼▼ 修正版：強制以「換行符號」切割取第一行 ▼▼▼
+      # ======================================================
+      - name: Generate Version JSON
+        run: |
+          node -e '
+            const fs = require("fs");
+            const { execSync } = require("child_process");
 
-     - name: Install dependencies
-       run: npm ci
+            if (!fs.existsSync("dist")) fs.mkdirSync("dist");
 
+            try {
+              // 1. 抓取完整內容 (Raw Body)
+              const fullBody = execSync("git log -1 --pretty=%B").toString().trim();
+              
+              // 2. 強制以換行符號 (\n) 切割，只取第一行作為版本標題
+              // 這樣就算 Commit 內容是一大坨，也只會抓到第一句
+              const subject = fullBody.split("\n")[0].trim();
 
-     - name: Build
-       run: npm run build
-       env:
-         # ⚠️ 非常重要：在這裡填入你的 Firebase 環境變數
-         # 這樣 GitHub 機器人在打包時才能把鑰匙寫進去
-         VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-         VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-         VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-         VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-         VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-         VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-   
-     # ======================================================
-     # ▼▼▼ 修正版：強制以「換行符號」切割取第一行 ▼▼▼
-     # ======================================================
-     - name: Generate Version JSON
-       run: |
-         node -e '
-           const fs = require("fs");
-           const { execSync } = require("child_process");
+              // 3. 取得台北時間
+              const date = new Date().toLocaleString("zh-TW", { 
+                timeZone: "Asia/Taipei", 
+                hour12: false 
+              });
 
+              const versionData = {
+                version: subject,      // 乾淨的第一行
+                notes: fullBody,       // 完整內容 (給彈窗用)
+                hash: "${{ github.sha }}",
+                date: date
+              };
 
-           if (!fs.existsSync("dist")) fs.mkdirSync("dist");
+              fs.writeFileSync("dist/version.json", JSON.stringify(versionData));
+              console.log("Version set to:", subject);
+              
+            } catch (error) {
+              console.error("Error generating version json:", error);
+              process.exit(1);
+            }
+          '
+      # ======================================================
+      # ▲▲▲ 修改結束 ▲▲▲
+      # ======================================================
+    
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
 
-
-           try {
-             // 1. 抓取完整內容 (Raw Body)
-             const fullBody = execSync("git log -1 --pretty=%B").toString().trim();
-            
-             // 2. 強制以換行符號 (\n) 切割，只取第一行作為版本標題
-             // 這樣就算 Commit 內容是一大坨，也只會抓到第一句
-             const subject = fullBody.split("\n")[0].trim();
-
-
-             // 3. 取得台北時間
-             const date = new Date().toLocaleString("zh-TW", {
-               timeZone: "Asia/Taipei",
-               hour12: false
-             });
-
-
-             const versionData = {
-               version: subject,      // 乾淨的第一行
-               notes: fullBody,       // 完整內容 (給彈窗用)
-               hash: "${{ github.sha }}",
-               date: date
-             };
-
-
-             fs.writeFileSync("dist/version.json", JSON.stringify(versionData));
-             console.log("Version set to:", subject);
-            
-           } catch (error) {
-             console.error("Error generating version json:", error);
-             process.exit(1);
-           }
-         '
-     # ======================================================
-     # ▲▲▲ 修改結束 ▲▲▲
-     # ======================================================
-
-
-  
-     - name: Upload artifact
-       uses: actions/upload-pages-artifact@v3
-       with:
-         path: ./dist
-
-
- deploy:
-   environment:
-     name: github-pages
-     url: ${{ steps.deployment.outputs.page_url }}
-   needs: build
-   runs-on: ubuntu-latest
-   steps:
-     - name: Deploy to GitHub Pages
-       id: deployment
-       uses: actions/deploy-pages@v4
-
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

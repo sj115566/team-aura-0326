@@ -4,7 +4,7 @@ import { useData } from '../hooks/useData';
 import { useAdmin } from '../hooks/useAdmin';
 import { useToast } from './ToastContext';
 import { db } from '../services/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore'; // 補上 updateDoc
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useLocation } from 'react-router-dom';
 
@@ -72,7 +72,8 @@ export const DataProvider = ({ children }) => {
    const {
        seasonName, users, roles, tasks, submissions, announcements, games, categories,
        selectedSeason, currentSeason, availableSeasons, isHistoryMode,
-       dataLoading, setSelectedSeason
+       dataLoading, setSelectedSeason,
+       lotteryTarget // 🔥 接收抽獎目標分數
    } = dataState;
 
 
@@ -214,7 +215,48 @@ export const DataProvider = ({ children }) => {
    const deleteTask = (id) => { const task = tasks.find(t => t.id === id); if (task) adminActions.deleteTask(task.firestoreId); };
    const deleteAnnouncement = (id) => { const item = announcements.find(a => a.id === id); if (item) adminActions.deleteAnnouncement(item.firestoreId); };
    const deleteGame = (id) => { const item = games.find(g => g.id === id); if (item) adminActions.deleteGame(item.firestoreId); };
-   const withdraw = (subId) => { const sub = submissions.find(s => s.id === subId); if (sub) adminActions.withdraw(sub.firestoreId); };
+  
+   // 🔥 [修復] 撤回功能 (獨立實作，改用 update 軟刪除)
+   const withdraw = async (subId) => {
+       if (!currentUser) return;
+      
+       // 1. 在本地狀態中尋找該提交
+       const sub = submissions.find(s => s.id === subId);
+       if (!sub) {
+           showToast("找不到該提交紀錄", "error");
+           return;
+       }
+
+
+       // 2. 身分驗證：比對 Document ID
+       // currentUser.firestoreId 是由 useAuth 提供的 Firestore Document ID
+       // sub.userDocId 是提交時寫入的 User Document ID
+       const isOwner = sub.userDocId === currentUser.firestoreId;
+       const isAdmin = currentUser.isAdmin;
+
+
+       if (!isOwner && !isAdmin) {
+           showToast("您沒有權限撤回此任務", "error");
+           return;
+       }
+
+
+       // 3. 執行更新 (設定為 'withdrawn' 狀態)
+       // 注意：Firestore 規則需要允許使用者 update 自己的文件
+       try {
+           const subRef = doc(db, "submissions", sub.firestoreId);
+           await updateDoc(subRef, {
+               status: "withdrawn", // 前端 TaskListView 遇到非標準狀態會 fallback 到 unsubmitted，顯示「立即回報」
+               withdrawnAt: new Date().toISOString()
+           });
+           showToast("已撤回任務提交", "success");
+       } catch (error) {
+           console.error("Withdraw failed:", error);
+           showToast("撤回失敗: " + error.message, "error");
+       }
+   };
+
+
    const review = (subId, action, points, statusOverride) => { const sub = submissions.find(s => s.id === subId); if (sub) adminActions.review(sub, action, points, statusOverride); };
    const updateAnnouncement = (id, title, content, rawFiles, category, isPinned, keepOldImages, categoryId) => { const item = announcements.find(x => x.id === id); if(item) return adminActions.updateAnnouncement(item, title, content, rawFiles, category, isPinned, keepOldImages, categoryId); };
    const updateGame = (data) => { const item = games.find(g => g.id === data.id); if(item) return adminActions.updateGame(item, data); };
@@ -231,6 +273,8 @@ export const DataProvider = ({ children }) => {
            ...adminActions,
            deleteTask, deleteAnnouncement, deleteGame, withdraw, review, updateAnnouncement, updateGame,
            refreshApp, exportReport, setSeason,
+            // 🔥 確保 updateSeasonTarget 被包含
+            updateSeasonTarget: adminActions.updateSeasonTarget,
            hardResetSystem: adminActions.hardResetSystem,
            restoreDefaultCategories: adminActions.restoreDefaultCategories,
            fixSubmissionLinks: adminActions.fixSubmissionLinks,
@@ -239,7 +283,8 @@ export const DataProvider = ({ children }) => {
        needRefresh,
        currentMultiplier, getMultiplier,
        notifications, clearNotification,
-       theme, toggleTheme // 匯出主題控制
+       theme, toggleTheme, // 匯出主題控制
+       lotteryTarget // 🔥 傳遞給前端
    };
 
 
@@ -248,4 +293,3 @@ export const DataProvider = ({ children }) => {
 
 
 export const useGlobalData = () => useContext(DataContext);
-
