@@ -9,7 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   // 設定基礎路徑，解決 404 問題
-  base: './',
+  base: '/',
   plugins: [
     react(),
     VitePWA({
@@ -22,8 +22,8 @@ export default defineConfig({
         theme_color: '#4f46e5',
         background_color: '#f8fafc',
         display: 'standalone',
-        scope: './',      // 限制作用範圍在當前目錄
-        start_url: './',  // 啟動時回到首頁 (相對路徑)
+        scope: '/',      // 限制作用範圍在當前目錄
+        start_url: '/',  // 啟動時回到首頁 (相對路徑)
         icons: [
           {
             src: 'icon.png', // 使用本地路徑，不要用 https://...
@@ -36,6 +36,13 @@ export default defineConfig({
             type: 'image/png'
           }
         ]
+      },
+
+      // 3. 加入以下 Workbox 設定，提高 Android 更新的靈敏度
+      workbox: {
+        cleanupOutdatedCaches: true, // 自動清理舊快取
+        clientsClaim: true,          // 讓新 SW 立即接管控制
+        skipWaiting: false,          // 必須為 false，否則紅點提示會失效（因為它會自動更新）
       }
     })
   ]
