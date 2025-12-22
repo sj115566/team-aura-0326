@@ -71,9 +71,9 @@ export const TaskListView = () => {
                 else return false;
             }
             const sList = mySubmissions || [];
-            const mySub = sList.find(s => (s.taskId === t.firestoreId || s.taskId === t.id));
-            const status = mySub ? mySub.status : null;
-            const isDone = status === 'pending' || status === 'approved';
+            // 尋找是否有任何一筆是「審核中」或「已通過」
+            const myMatch = sList.filter(s => (String(s.taskId) === String(t.firestoreId) || String(s.taskId) === String(t.id)));
+            const isDone = myMatch.some(s => s.status === 'pending' || s.status === 'approved');
             if (filterStatus === 'incomplete' && isDone) return false;
             if (filterStatus === 'complete' && !isDone) return false;
             return true;
@@ -94,7 +94,7 @@ export const TaskListView = () => {
             return String(b.id).localeCompare(String(a.id));
         });
         return { pinnedList: pList, dailyGroup: groupTasksByWeek(dList), weeklyGroup: groupTasksByWeek(wList) };
-    }, [tasks, sortOrder, filterStatus, filterCategory, submissions, currentUser, categories]);
+    }, [tasks, sortOrder, filterStatus, filterCategory, mySubmissions, currentUser, categories]);
 
     const filterOptions = useMemo(() => categories ? categories.filter(c => c.type === 'task') : [], [categories]);
     const handleDelete = (task) => { confirm({ title: "刪除任務", message: `確定要刪除「${task.title}」嗎？`, onConfirm: () => actions.deleteTask(task.id) }); };
@@ -102,7 +102,10 @@ export const TaskListView = () => {
 
     const TaskCard = ({ task }) => {
         const sList = mySubmissions || [];
-        const mySub = sList.find(s => (s.taskId === task.firestoreId || s.taskId === task.id));
+        const myMatches = sList.filter(s => (String(s.taskId) === String(task.firestoreId) || String(s.taskId) === String(task.id)));
+
+        // 優先取得「已通過」或「審核中」的紀錄來顯示狀態
+        const mySub = myMatches.find(s => s.status === 'approved') || myMatches.find(s => s.status === 'pending') || myMatches[0];
         const status = mySub ? mySub.status : null;
         const isDone = status === 'pending' || status === 'approved';
         const catInfo = getCategoryInfo(task, categories);

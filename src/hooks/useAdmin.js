@@ -148,7 +148,7 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
                 uid: currentUser.username,
                 userDocId: currentUser.firestoreId,
                 username: currentUser.username,
-                taskId: data.task.firestoreId || data.task.id, // 🔥 使用 firestoreId 確保關聯穩定
+                taskId: String(data.task.firestoreId || data.task.id), // 🔥 強制轉為字串，避免型別不匹
                 taskTitle: data.task.title,
                 points: basePoints,
                 basePoints: basePoints,
@@ -175,14 +175,22 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
             if (newStatus === 'approved') {
                 try {
                     const tasksRef = collection(db, "tasks");
-                    const q = query(tasksRef, where("id", "==", sub.taskId));
-                    const querySnapshot = await getDocs(q);
-                    if (!querySnapshot.empty) {
-                        const taskData = querySnapshot.docs[0].data();
-                        if (taskData.type === 'fixed') {
-                            const currentTaskPoints = Number(taskData.points) || 0;
-                            if (currentTaskPoints !== finalBasePoints) finalBasePoints = currentTaskPoints;
+                    // 同時嘗試 doc 與 query 確保找到任務
+                    let taskData = null;
+                    try {
+                        const taskDoc = await getDoc(doc(db, "tasks", sub.taskId));
+                        if (taskDoc.exists()) {
+                            taskData = taskDoc.data();
+                        } else {
+                            const q = query(tasksRef, where("id", "==", sub.taskId));
+                            const querySnapshot = await getDocs(q);
+                            if (!querySnapshot.empty) taskData = querySnapshot.docs[0].data();
                         }
+                    } catch (e) { console.error(e); }
+
+                    if (taskData && taskData.type === 'fixed') {
+                        const currentTaskPoints = Number(taskData.points) || 0;
+                        if (currentTaskPoints !== finalBasePoints) finalBasePoints = currentTaskPoints;
                     }
                 } catch (e) { console.warn("同步任務分數失敗", e); }
             } else if (newStatus === 'rejected') finalBasePoints = 0;
@@ -467,10 +475,10 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
                 }
 
                 // 2. 修復 Task 連結 (根據任務名稱或舊 ID 補回 firestoreId)
-                const task = tasksMap.find(t => t.firestoreId === subData.taskId);
+                const task = tasksMap.find(t => String(t.firestoreId) === String(subData.taskId));
                 if (!task) {
-                    // 如果用 firestoreId 找不到，嘗試用 title 或舊的 id 找
-                    const matchedTask = tasksMap.find(t => t.title === subData.taskTitle || t.id === subData.taskId);
+                    // 如果用 firestoreId 找不到，嘗試用 title 或舊的 id 找 (同樣支援型別轉換)
+                    const matchedTask = tasksMap.find(t => t.title === subData.taskTitle || String(t.id) === String(subData.taskId));
                     if (matchedTask) {
                         updates.taskId = matchedTask.firestoreId;
                         taskFixCount++;
@@ -484,11 +492,11 @@ export const useAdmin = (currentUser, seasonName, users, roles = []) => {
 
             if (userFixCount > 0 || taskFixCount > 0) {
                 await batch.commit();
-                console.log(`修復完成：${userFixCount} 筆使用者關聯，${taskFixCount} 筆任務關聯`);
+                showToast(`修復完成：${userFixCount} 筆使用者，${taskFixCount} 筆任務。`);
             } else {
-                console.log("沒有需要修復的紀錄");
+                showToast("沒有需要修復的紀錄");
             }
-        }, `修復完成：${userFixCount} 筆使用者，${taskFixCount} 筆任務。`)
+        }, null)
     };
     return { actions, adminLoading };
 };

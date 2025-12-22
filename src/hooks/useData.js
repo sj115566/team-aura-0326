@@ -163,7 +163,7 @@ export const useData = (currentUser, updateCurrentUser) => {
                 const mySubQ = query(
                     collection(db, "submissions"),
                     where("season", "==", selectedSeason),
-                    where("uid", "==", currentUser.username)
+                    where("userDocId", "==", currentUser.firestoreId)
                 );
                 const unsubMySubs = onSnapshot(mySubQ, (s) => {
                     setMySubmissions(s.docs.map(d => ({ ...d.data(), firestoreId: d.id })));

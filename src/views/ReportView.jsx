@@ -58,9 +58,9 @@ export const ReportView = () => {
                 let wTotalBase = 0;
                 w.tasks.forEach(t => {
                     let rawPts = subMap.get(`${u.firestoreId}_${t.firestoreId}`);
-                    if (rawPts === undefined) rawPts = subMap.get(`${u.firestoreId}_${t.id}`);
+                    if (rawPts === undefined) rawPts = subMap.get(`${u.firestoreId}_${String(t.id)}`);
                     if (rawPts === undefined) rawPts = subMap.get(`${u.uid}_${t.firestoreId}`);
-                    if (rawPts === undefined) rawPts = subMap.get(`${u.uid}_${t.id}`);
+                    if (rawPts === undefined) rawPts = subMap.get(`${u.uid}_${String(t.id)}`);
                     taskPoints[t.id] = rawPts !== undefined ? rawPts : null;
                     if (rawPts !== undefined) wTotalBase += rawPts;
                 });
