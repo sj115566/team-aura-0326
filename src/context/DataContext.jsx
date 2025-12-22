@@ -51,7 +51,15 @@ export const DataProvider = ({ children }) => {
         needRefresh: [needRefresh, setNeedRefresh],
         updateServiceWorker,
     } = useRegisterSW({
-        onRegistered(r) { console.log('SW Registered: ' + r); },
+        onRegistered(r) {
+            console.log('SW Registered: ' + r);
+            // 每 60 分鐘主動檢查一次是否有新版本
+            if (r) {
+                setInterval(() => {
+                    r.update();
+                }, 60 * 60 * 1000);
+            }
+        },
         onRegisterError(error) { console.log('SW registration error', error); },
     });
 
