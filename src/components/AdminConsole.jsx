@@ -3,6 +3,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Modal } from './ui/Modal';
 import { Icon } from './Icons';
+import { useGlobalData } from '../context/DataContext';
 
 export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, showHistory, toggleHistory, isHistoryMode, users = [], loading }) => {
   const [viewing, setViewing] = useState(null);
@@ -10,6 +11,7 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
   const [inputPoints, setInputPoints] = useState({});
   const [historyFilter, setHistoryFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const { actions } = useGlobalData();
 
   const handlePointChange = (subId, value) => {
     setInputPoints(prev => ({ ...prev, [subId]: value }));
@@ -357,6 +359,21 @@ export const AdminConsole = ({ pendingSubs, processedSubs, tasks, onReview, show
           </div>
         )}
       </Modal>
+
+      {/* 系統維護區塊 */}
+      {!isHistoryMode && (
+        <div className="mt-8 pt-4 border-t border-slate-700">
+          <h4 className="font-bold text-sm mb-3 text-slate-400 flex items-center gap-2"><Icon name="Settings" className="w-4 h-4" /> 系統維護工具</h4>
+          <div className="flex gap-2">
+            <Button variant="secondary" className="text-xs py-1.5 px-3 bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 dark:bg-slate-700 dark:border-slate-600" onClick={() => actions.fixSubmissionLinks()}>
+              <Icon name="Link" className="w-3 h-3" /> 修復資料連結
+            </Button>
+            <div className="text-[10px] text-slate-500 flex items-center">
+              *若發現舊資料無法顯示或連結失效，請執行此修復。
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

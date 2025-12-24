@@ -72,7 +72,12 @@ export const TaskListView = () => {
             }
             const sList = mySubmissions || [];
             // 尋找是否有任何一筆是「審核中」或「已通過」
-            const myMatch = sList.filter(s => (String(s.taskId) === String(t.firestoreId) || String(s.taskId) === String(t.id)));
+            // 增加 task.title 作為備用比對，以防舊資料 ID 不一致
+            const myMatch = sList.filter(s => (
+                String(s.taskId) === String(t.firestoreId) || 
+                String(s.taskId) === String(t.id) ||
+                String(s.taskId) === String(t.title)
+            ));
             const isDone = myMatch.some(s => s.status === 'pending' || s.status === 'approved');
             if (filterStatus === 'incomplete' && isDone) return false;
             if (filterStatus === 'complete' && !isDone) return false;
@@ -102,12 +107,19 @@ export const TaskListView = () => {
 
     const TaskCard = ({ task }) => {
         const sList = mySubmissions || [];
-        const myMatches = sList.filter(s => (String(s.taskId) === String(task.firestoreId) || String(s.taskId) === String(task.id)));
+        // 優先取得「已通過」或「審核中」的紀錄來顯示狀態，增加標題比對備援
+        const myMatches = sList.filter(s => (
+            String(s.taskId) === String(task.firestoreId) || 
+            String(s.taskId) === String(task.id) ||
+            String(s.taskId) === String(task.title)
+        ));
 
-        // 優先取得「已通過」或「審核中」的紀錄來顯示狀態
-        const mySub = myMatches.find(s => s.status === 'approved') || myMatches.find(s => s.status === 'pending') || myMatches[0];
+        const mySub = myMatches.find(s => s.status === 'approved') || 
+                      myMatches.find(s => s.status === 'pending') || 
+                      myMatches[0];
         const status = mySub ? mySub.status : null;
-        const isDone = status === 'pending' || status === 'approved';
+        // 只要有任何一筆是 approved 或 pending，就算完成 (隱藏報按鈕)
+        const isDone = myMatches.some(s => s.status === 'approved' || s.status === 'pending');
         const catInfo = getCategoryInfo(task, categories);
         const badgeStyle = { backgroundColor: catInfo.found ? catInfo.color : '#f3f4f6', color: catInfo.found ? '#ffffff' : '#4b5563' };
         return (

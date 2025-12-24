@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/firebase';
-import { collection, query, orderBy, onSnapshot, doc, limit, where, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, limit, where, getDocs, or, and } from 'firebase/firestore';
 
 export const useData = (currentUser, updateCurrentUser) => {
     const [tasks, setTasks] = useState([]);
@@ -162,8 +162,13 @@ export const useData = (currentUser, updateCurrentUser) => {
             if (currentUser) {
                 const mySubQ = query(
                     collection(db, "submissions"),
-                    where("season", "==", selectedSeason),
-                    where("userDocId", "==", currentUser.firestoreId)
+                    and(
+                        where("season", "==", selectedSeason),
+                        or(
+                            where("userDocId", "==", currentUser.firestoreId),
+                            where("uid", "==", currentUser.username)
+                        )
+                    )
                 );
                 const unsubMySubs = onSnapshot(mySubQ, (s) => {
                     setMySubmissions(s.docs.map(d => ({ ...d.data(), firestoreId: d.id })));
