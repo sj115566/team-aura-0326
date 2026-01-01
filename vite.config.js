@@ -42,7 +42,7 @@ export default defineConfig({
       workbox: {
         cleanupOutdatedCaches: true, // 自動清理舊快取
         clientsClaim: true,          // 讓新 SW 立即接管控制
-        skipWaiting: false,          // 必須為 false，否則紅點提示會失效（因為它會自動更新）
+        skipWaiting: true,          // 設為 true，讓新 SW 下載後立即接管，解決更新卡住問題
       }
     })
   ]
